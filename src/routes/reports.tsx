@@ -1,0 +1,3 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { ReportsScreen } from "@/components/business-screens";
+export const Route=createFileRoute("/reports")({head:()=>({meta:[{title:"Reportes — TPV PRO"},{name:"description",content:"Analítica de ventas, beneficios y categorías."},{property:"og:title",content:"Reportes — TPV PRO"},{property:"og:description",content:"Analítica de ventas, beneficios y categorías."},{property:"og:type",content:"website"},{name:"twitter:card",content:"summary_large_image"}]}),component:ReportsScreen});

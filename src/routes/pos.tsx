@@ -1,0 +1,3 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { PosScreen } from "@/components/pos-screen";
+export const Route=createFileRoute("/pos")({head:()=>({meta:[{title:"TPV Venta — TPV PRO"},{name:"description",content:"Punto de venta rápido para tienda de alimentación."},{property:"og:title",content:"TPV Venta — TPV PRO"},{property:"og:description",content:"Punto de venta rápido para tienda de alimentación."},{property:"og:type",content:"website"},{name:"twitter:card",content:"summary_large_image"}]}),component:PosScreen});

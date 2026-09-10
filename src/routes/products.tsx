@@ -1,0 +1,3 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { ProductsScreen } from "@/components/products-screen";
+export const Route=createFileRoute("/products")({head:()=>({meta:[{title:"Productos — TPV PRO"},{name:"description",content:"Catálogo profesional de productos, precios y márgenes."},{property:"og:title",content:"Productos — TPV PRO"},{property:"og:description",content:"Catálogo profesional de productos, precios y márgenes."},{property:"og:type",content:"website"},{name:"twitter:card",content:"summary_large_image"}]}),component:ProductsScreen});

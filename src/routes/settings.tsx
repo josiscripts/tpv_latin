@@ -1,0 +1,3 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { SettingsScreen } from "@/components/settings-screen";
+export const Route=createFileRoute("/settings")({head:()=>({meta:[{title:"Configuración — TPV PRO"},{name:"description",content:"Apariencia, negocio y dispositivos del TPV."},{property:"og:title",content:"Configuración — TPV PRO"},{property:"og:description",content:"Apariencia, negocio y dispositivos del TPV."},{property:"og:type",content:"website"},{name:"twitter:card",content:"summary_large_image"}]}),component:SettingsScreen});

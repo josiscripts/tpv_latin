@@ -1,0 +1,3 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { InventoryScreen } from "@/components/inventory-screen";
+export const Route=createFileRoute("/stock")({head:()=>({meta:[{title:"Stock — TPV PRO"},{name:"description",content:"Control de inventario y movimientos de stock."},{property:"og:title",content:"Stock — TPV PRO"},{property:"og:description",content:"Control de inventario y movimientos de stock."},{property:"og:type",content:"website"},{name:"twitter:card",content:"summary_large_image"}]}),component:InventoryScreen});
