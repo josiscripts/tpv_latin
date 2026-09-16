@@ -1,3 +1,3 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { CategoriesScreen } from "@/components/business-screens";
+import { CategoriesScreen } from "@/components/categories-screen";
 export const Route=createFileRoute("/categories")({head:()=>({meta:[{title:"Categorías — TPV PRO"},{name:"description",content:"Organización visual del catálogo por categorías."},{property:"og:title",content:"Categorías — TPV PRO"},{property:"og:description",content:"Organización visual del catálogo por categorías."},{property:"og:type",content:"website"},{name:"twitter:card",content:"summary_large_image"}]}),component:CategoriesScreen});

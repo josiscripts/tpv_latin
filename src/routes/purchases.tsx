@@ -1,3 +1,3 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { PurchasesScreen } from "@/components/business-screens";
+import { PurchasesScreen } from "@/components/purchases-screen";
 export const Route=createFileRoute("/purchases")({head:()=>({meta:[{title:"Compras — TPV PRO"},{name:"description",content:"Registro de compras y entradas de mercancía."},{property:"og:title",content:"Compras — TPV PRO"},{property:"og:description",content:"Registro de compras y entradas de mercancía."},{property:"og:type",content:"website"},{name:"twitter:card",content:"summary_large_image"}]}),component:PurchasesScreen});

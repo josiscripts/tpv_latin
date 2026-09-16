@@ -14,6 +14,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { PosProvider } from "../components/pos-context";
 import { AppShell } from "../components/app-shell";
 import { Toaster } from "../components/ui/sonner";
+import { useRealtimeSubscriptions } from "../hooks/useRealtimeSubscriptions";
 
 function NotFoundComponent() {
   return (
@@ -116,13 +117,23 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+function RealtimeInitializer({ children }: { children: ReactNode }) {
+  // Suscripción global única a Realtime (ejecuta solo una vez en toda la app)
+  // Este componente está DENTRO de QueryClientProvider, por lo que useQueryClient() funciona correctamente
+  useRealtimeSubscriptions();
+
+  return <>{children}</>;
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <PosProvider><AppShell><Outlet /></AppShell><Toaster position="bottom-right" richColors /></PosProvider>
+      <RealtimeInitializer>
+        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+        <PosProvider><AppShell><Outlet /></AppShell><Toaster position="bottom-right" richColors /></PosProvider>
+      </RealtimeInitializer>
     </QueryClientProvider>
   );
 }

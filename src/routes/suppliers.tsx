@@ -1,3 +1,3 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { SuppliersScreen } from "@/components/business-screens";
+import { SuppliersScreen } from "@/components/suppliers-screen";
 export const Route=createFileRoute("/suppliers")({head:()=>({meta:[{title:"Proveedores — TPV PRO"},{name:"description",content:"Directorio comercial y productos suministrados."},{property:"og:title",content:"Proveedores — TPV PRO"},{property:"og:description",content:"Directorio comercial y productos suministrados."},{property:"og:type",content:"website"},{name:"twitter:card",content:"summary_large_image"}]}),component:SuppliersScreen});
