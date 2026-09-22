@@ -5,7 +5,7 @@ import { PageHeader } from "./app-shell";
 import { ProductImage, SectionCard, money } from "./pos-ui";
 import { usePos } from "./pos-context";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -25,6 +25,7 @@ export function CategoriesScreen() {
   const [newCategoryName, setNewCategoryName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
 
   const createCategory = useCreateCategory();
   const updateName = useUpdateCategoryName();
@@ -153,13 +154,22 @@ export function CategoriesScreen() {
                 >
                   Ver
                 </Button>
-                <Dialog>
-                  <button
-                    className="p-2 rounded hover:bg-muted"
-                    title="Editar"
-                  >
-                    <Edit2 size={14} />
-                  </button>
+                <Dialog open={editDialogOpen && editingId === cat.id} onOpenChange={(open) => {
+                  setEditDialogOpen(open);
+                  if (!open) setEditingId(null);
+                }}>
+                  <DialogTrigger asChild>
+                    <button
+                      className="p-2 rounded hover:bg-muted"
+                      title="Editar"
+                      onClick={() => {
+                        setEditingId(cat.id);
+                        setEditingName(cat.name);
+                      }}
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                  </DialogTrigger>
                   <DialogContent className="sm:max-w-[400px]">
                     <DialogHeader>
                       <DialogTitle>Editar {cat.name}</DialogTitle>
