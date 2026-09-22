@@ -1,49 +1,293 @@
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Building2, CalendarDays, ChevronRight, CreditCard, Mail, MapPin, PackagePlus, Phone, Plus, ReceiptText, Trash2, Truck } from "lucide-react";
-import { useState } from "react";
+import { Building2, CalendarDays, ChevronRight, ChevronLeft, CreditCard, Mail, MapPin, PackagePlus, Phone, Plus, ReceiptText, Trash2, Truck, Edit2, Palette, Upload } from "lucide-react";
+import { useState, useRef } from "react";
 import { PageHeader } from "./app-shell";
 import { ProductImage, SectionCard, money } from "./pos-ui";
 import { usePos } from "./pos-context";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
 import { useSales } from "@/hooks/useSales";
 import { useSuppliers } from "@/hooks/useSuppliers";
 import { useMonthlySalesData, usePaymentMethodStats } from "@/hooks/useDashboard";
 import { useProducts } from "@/hooks/useProducts";
-import { useCategories } from "@/hooks/useCategories";
+import { useCategories, useCreateCategory, useUpdateCategoryName, useUpdateCategoryColor, useUploadCategoryImage } from "@/hooks/useCategories";
 
 export function CategoriesScreen() {
   const { t } = usePos();
   const { data: categories = [], isLoading } = useCategories();
   const { data: products = [] } = useProducts();
+  const [selectedCategory, setSelectedCategory] = useState<any>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
 
-  if (isLoading) return <div className="p-8">Cargando categorías...</div>;
+  const createCategory = useCreateCategory();
+  const updateName = useUpdateCategoryName();
+  const updateColor = useUpdateCategoryColor();
+  const uploadImage = useUploadCategoryImage();
 
   const productsByCategory = categories.map(cat => ({
     ...cat,
     count: products.filter(p => p.category_id === cat.id).length
   }));
 
+  const categoryProducts = selectedCategory
+    ? products.filter(p => p.category_id === selectedCategory.id)
+    : [];
+
+  const handleCreateCategory = async () => {
+    if (!newCategoryName.trim()) {
+      toast.error("Ingrese un nombre");
+      return;
+    }
+
+    try {
+      await createCategory.mutateAsync({
+        name: newCategoryName.trim(),
+        active: true,
+      });
+      toast.success("Categoría creada");
+      setNewCategoryName("");
+      setIsCreating(false);
+    } catch (error) {
+      toast.error("Error al crear categoría");
+    }
+  };
+
+  const handleUpdateName = async (id: string, name: string) => {
+    if (!name.trim()) {
+      toast.error("Ingrese un nombre");
+      return;
+    }
+
+    try {
+      await updateName.mutateAsync({ id, name: name.trim() });
+      toast.success("Nombre actualizado");
+      setEditingId(null);
+    } catch (error) {
+      toast.error("Error al actualizar");
+    }
+  };
+
+  const handleColorChange = async (id: string, color: string) => {
+    try {
+      await updateColor.mutateAsync({ id, color });
+    } catch (error) {
+      toast.error("Error al cambiar color");
+    }
+  };
+
+  const handleImageUpload = async (id: string, file: File) => {
+    try {
+      await uploadImage.mutateAsync({ categoryId: id, file });
+      toast.success("Imagen subida");
+    } catch (error) {
+      toast.error("Error al subir imagen");
+    }
+  };
+
+  if (isLoading) return <div className="p-8">Cargando categorías...</div>;
+
+  if (selectedCategory) {
+    return (
+      <>
+        <PageHeader
+          title={selectedCategory.name}
+          subtitle={`${categoryProducts.length} productos`}
+          action={<Button variant="outline" onClick={() => setSelectedCategory(null)}><ChevronLeft />Volver</Button>}
+        />
+        <div className="grid grid-cols-5 gap-4">
+          {categoryProducts.map(product => (
+            <div key={product.id} className="rounded-lg border bg-card p-4">
+              {product.image ? (
+                <img src={product.image} alt={product.name} className="h-32 w-full object-cover rounded-lg mb-3" />
+              ) : (
+                <div className="h-32 w-full bg-muted rounded-lg mb-3 flex items-center justify-center">
+                  <PackagePlus size={20} className="text-muted-foreground" />
+                </div>
+              )}
+              <h3 className="text-sm font-bold truncate">{product.name}</h3>
+              <p className="text-xs text-muted-foreground mt-1">{money(product.sale_price)}</p>
+              <p className="text-xs text-muted-foreground">Stock: {product.stock}</p>
+            </div>
+          ))}
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
-      <PageHeader title={t("categories")} subtitle="Organiza y clasifica tu catálogo" action={<Button><Plus />Nueva categoría</Button>} />
+      <PageHeader
+        title={t("categories")}
+        subtitle="Organiza y clasifica tu catálogo"
+        action={<Button onClick={() => setIsCreating(true)}><Plus size={16} />Nueva</Button>}
+      />
       <div className="grid grid-cols-4 gap-4">
-        {productsByCategory.map((x, i) => (
-          <div key={x.id} className="group rounded-lg border bg-card p-5 transition-all hover:-translate-y-0.5 hover:shadow-md">
-            <div className="flex items-start justify-between">
-              <div className={`grid size-11 place-items-center rounded-lg category-${i % 4}`}>
-                <PackagePlus size={20} />
+        {productsByCategory.map((cat) => (
+          <div key={cat.id} className="group rounded-lg border bg-card overflow-hidden transition-all hover:shadow-md cursor-pointer">
+            {cat.image_url ? (
+              <img src={cat.image_url} alt={cat.name} className="w-full h-32 object-cover" />
+            ) : (
+              <div
+                className="w-full h-32 flex items-center justify-center"
+                style={{ backgroundColor: cat.color || '#3b82f6' }}
+              >
+                <PackagePlus size={28} className="text-white opacity-40" />
               </div>
-              <Button size="icon" variant="ghost"><ChevronRight /></Button>
+            )}
+            <div className="p-4">
+              <h2 className="text-sm font-bold">{cat.name}</h2>
+              <p className="text-xs text-muted-foreground">{cat.count} productos</p>
+              <div className="mt-3 flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setSelectedCategory(cat)}
+                >
+                  Ver
+                </Button>
+                <Dialog>
+                  <button
+                    className="p-2 rounded hover:bg-muted"
+                    title="Editar"
+                  >
+                    <Edit2 size={14} />
+                  </button>
+                  <DialogContent className="sm:max-w-[400px]">
+                    <DialogHeader>
+                      <DialogTitle>Editar {cat.name}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div>
+                        <Label>Nombre</Label>
+                        <Input
+                          value={editingId === cat.id ? editingName : cat.name}
+                          onChange={(e) => {
+                            setEditingId(cat.id);
+                            setEditingName(e.target.value);
+                          }}
+                        />
+                        <Button
+                          className="mt-2 w-full"
+                          onClick={() => handleUpdateName(cat.id, editingName)}
+                          disabled={updateName.isPending}
+                        >
+                          Guardar nombre
+                        </Button>
+                      </div>
+
+                      <div>
+                        <Label>Color</Label>
+                        <div className="flex gap-2">
+                          <input
+                            type="color"
+                            value={cat.color || '#3b82f6'}
+                            onChange={(e) => handleColorChange(cat.id, e.target.value)}
+                            className="w-16 h-10 rounded cursor-pointer"
+                          />
+                          <Input value={cat.color || '#3b82f6'} readOnly className="flex-1" />
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label>Imagen</Label>
+                        <ImageUploadInput
+                          categoryId={cat.id}
+                          currentImage={cat.image_url}
+                          onUpload={handleImageUpload}
+                          isLoading={uploadImage.isPending}
+                        />
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
             </div>
-            <h2 className="mt-7 text-sm font-bold">{x.name}</h2>
-            <p className="mt-1 text-xs text-muted-foreground">{x.count} productos</p>
           </div>
         ))}
       </div>
+
+      <Dialog open={isCreating} onOpenChange={setIsCreating}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Nueva categoría</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Nombre</Label>
+              <Input
+                placeholder="Ej: Bebidas"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+              />
+            </div>
+            <Button
+              className="w-full"
+              onClick={handleCreateCategory}
+              disabled={createCategory.isPending}
+            >
+              {createCategory.isPending ? "Creando..." : "Crear categoría"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
+  );
+}
+
+function ImageUploadInput({
+  categoryId,
+  currentImage,
+  onUpload,
+  isLoading
+}: {
+  categoryId: string;
+  currentImage?: string;
+  onUpload: (id: string, file: File) => Promise<void>;
+  isLoading: boolean;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      await onUpload(categoryId, file);
+    } catch (error) {
+      toast.error("Error al subir imagen");
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      {currentImage && (
+        <img src={currentImage} alt="Category" className="w-full h-24 object-cover rounded" />
+      )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+      <Button
+        variant="outline"
+        className="w-full"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={isLoading}
+      >
+        <Upload size={14} className="mr-2" />
+        {isLoading ? "Subiendo..." : "Subir imagen"}
+      </Button>
+    </div>
   );
 }
 
