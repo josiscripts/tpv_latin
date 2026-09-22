@@ -1,5 +1,5 @@
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Building2, CalendarDays, ChevronRight, ChevronLeft, CreditCard, Mail, MapPin, PackagePlus, Phone, Plus, ReceiptText, Trash2, Truck, Edit2, Palette, Upload } from "lucide-react";
+import { Building2, ChevronRight, ChevronLeft, CreditCard, Mail, MapPin, PackagePlus, Phone, Plus, Trash2, Truck, Edit2, Palette, Upload } from "lucide-react";
 import { useState, useRef } from "react";
 import { PageHeader } from "./app-shell";
 import { ProductImage, SectionCard, money } from "./pos-ui";
@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { useSales } from "@/hooks/useSales";
 import { useSuppliers } from "@/hooks/useSuppliers";
 import { useMonthlySalesData, usePaymentMethodStats } from "@/hooks/useDashboard";
 import { useProducts } from "@/hooks/useProducts";
@@ -436,83 +435,7 @@ export function PurchasesScreen() {
   );
 }
 
-export function SalesScreen() {
-  const { t } = usePos();
-  const { data: sales = [], isLoading } = useSales();
-  const [selectedSale, setSelectedSale] = useState<any>(null);
-
-  if (isLoading) return <div className="p-8">Cargando ventas...</div>;
-
-  const selectedSaleData = sales.find((s) => s.id === selectedSale);
-
-  return (
-    <>
-      <PageHeader title={t("sales")} subtitle="Historial completo de transacciones" action={<Button variant="outline"><CalendarDays />Exportar</Button>} />
-      <div className="mb-4 flex gap-2">
-        {[t("today"), t("week"), t("month"), t("custom")].map((x, i) => (
-          <Button key={x} variant={i === 0 ? "default" : "outline"} size="sm">{x}</Button>
-        ))}
-      </div>
-      <div className="overflow-hidden rounded-lg border bg-card">
-        <table className="w-full text-left text-xs">
-          <thead className="border-b bg-muted/50 text-[10px] uppercase text-muted-foreground">
-            <tr>
-              {["Fecha", "Origen", "Líneas", "Método pago", "Total", "Estado"].map((x) => (
-                <th key={x} className="px-4 py-3">{x}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {sales.map((sale) => (
-              <tr
-                key={sale.id}
-                className="cursor-pointer border-b last:border-0 hover:bg-muted/40"
-                onClick={() => setSelectedSale(sale.id)}
-              >
-                <td className="px-4 py-4">{new Date(sale.sale_date).toLocaleString()}</td>
-                <td className="px-4 py-4">{sale.source === "sysme" ? "Sysme" : "Latin POS"}</td>
-                <td className="px-4 py-4">{(sale.sale_lines as any)?.length || 0}</td>
-                <td className="px-4 py-4">{sale.payment_method || "N/A"}</td>
-                <td className="px-4 py-4 font-bold">{money(Number(sale.total))}</td>
-                <td className="px-4 py-4">
-                  <span className={`text-xs ${sale.status === "completed" ? "text-success" : "text-warning"}`}>
-                    {sale.status === "completed" ? "Completada" : "Cancelada"}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <Dialog open={!!selectedSale} onOpenChange={() => setSelectedSale(null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><ReceiptText />Detalle de venta</DialogTitle>
-          </DialogHeader>
-          {selectedSaleData && (
-            <div className="border-y py-4 text-xs">
-              <div className="mb-4 flex justify-between text-muted-foreground">
-                <span>{new Date(selectedSaleData.sale_date).toLocaleString()}</span>
-                <span>Caja 01</span>
-              </div>
-              {(selectedSaleData.sale_lines as any)?.map((line: any, idx: number) => (
-                <div key={line.id || idx} className="flex justify-between py-2 border-b">
-                  <span>{line.quantity} × {line.products?.name || "Producto"}</span>
-                  <b>{money(line.unit_sale_price * line.quantity)}</b>
-                </div>
-              ))}
-              <div className="flex justify-between text-lg font-bold mt-4">
-                <span>TOTAL</span>
-                <span>{money(Number(selectedSaleData.total))}</span>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </>
-  );
-}
+// SalesScreen moved to src/components/sales-screen.tsx
 
 export function ReportsScreen() {
   const { t } = usePos();
