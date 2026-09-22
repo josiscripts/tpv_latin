@@ -10,27 +10,36 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSales } from "@/hooks/useSales";
 import { useSuppliers } from "@/hooks/useSuppliers";
-import { useMonthlySalesData } from "@/hooks/useDashboard";
+import { useMonthlySalesData, usePaymentMethodStats } from "@/hooks/useDashboard";
 import { useProducts } from "@/hooks/useProducts";
+import { useCategories } from "@/hooks/useCategories";
 
 export function CategoriesScreen() {
   const { t } = usePos();
-  const categories = ["Bebidas", "Snacks", "Limpieza", "Congelados", "Dulces", "Panadería", "Conservas", "Lácteos"];
+  const { data: categories = [], isLoading } = useCategories();
+  const { data: products = [] } = useProducts();
+
+  if (isLoading) return <div className="p-8">Cargando categorías...</div>;
+
+  const productsByCategory = categories.map(cat => ({
+    ...cat,
+    count: products.filter(p => p.category_id === cat.id).length
+  }));
 
   return (
     <>
       <PageHeader title={t("categories")} subtitle="Organiza y clasifica tu catálogo" action={<Button><Plus />Nueva categoría</Button>} />
       <div className="grid grid-cols-4 gap-4">
-        {categories.map((x, i) => (
-          <div key={x} className="group rounded-lg border bg-card p-5 transition-all hover:-translate-y-0.5 hover:shadow-md">
+        {productsByCategory.map((x, i) => (
+          <div key={x.id} className="group rounded-lg border bg-card p-5 transition-all hover:-translate-y-0.5 hover:shadow-md">
             <div className="flex items-start justify-between">
               <div className={`grid size-11 place-items-center rounded-lg category-${i % 4}`}>
                 <PackagePlus size={20} />
               </div>
               <Button size="icon" variant="ghost"><ChevronRight /></Button>
             </div>
-            <h2 className="mt-7 text-sm font-bold">{x}</h2>
-            <p className="mt-1 text-xs text-muted-foreground">{[42, 31, 18, 16, 28, 22, 37, 14][i]} productos</p>
+            <h2 className="mt-7 text-sm font-bold">{x.name}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{x.count} productos</p>
           </div>
         ))}
       </div>
@@ -254,6 +263,9 @@ export function SalesScreen() {
 export function ReportsScreen() {
   const { t } = usePos();
   const { data: monthlySales = [] } = useMonthlySalesData();
+  const { data: paymentMethods = [] } = usePaymentMethodStats();
+
+  const chartColors = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "var(--chart-6)"];
 
   return (
     <>
@@ -283,15 +295,17 @@ export function ReportsScreen() {
           <div className="flex h-[220px] items-center">
             <ResponsiveContainer width="60%">
               <PieChart>
-                <Pie data={[{ n: "Tarjeta", v: 68 }, { n: "Efectivo", v: 32 }]} dataKey="v" innerRadius={48} outerRadius={70} stroke="none" isAnimationActive={false}>
-                  <Cell fill="var(--chart-1)" />
-                  <Cell fill="var(--chart-4)" />
+                <Pie data={paymentMethods} dataKey="v" innerRadius={48} outerRadius={70} stroke="none" isAnimationActive={false}>
+                  {paymentMethods.map((_, idx) => (
+                    <Cell key={`cell-${idx}`} fill={chartColors[idx % chartColors.length]} />
+                  ))}
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
             <div className="space-y-3 text-xs">
-              <p><i className="mr-2 inline-block size-2 rounded-full bg-primary" />Tarjeta <b>68%</b></p>
-              <p><i className="mr-2 inline-block size-2 rounded-full bg-warning" />Efectivo <b>32%</b></p>
+              {paymentMethods.map((method, idx) => (
+                <p key={method.n}><i className="mr-2 inline-block size-2 rounded-full" style={{ backgroundColor: chartColors[idx % chartColors.length] }} />{method.n} <b>{method.v}%</b></p>
+              ))}
             </div>
           </div>
         </SectionCard>

@@ -197,4 +197,32 @@ export const dashboardService = {
       criticalCount,
     };
   },
+
+  async getPaymentMethodStats() {
+    const { data, error } = await supabase
+      .from('sales')
+      .select('payment_method, total')
+      .eq('status', 'completed');
+
+    if (error) throw error;
+
+    const grouped: Record<string, { count: number; total: number }> = {};
+
+    (data || []).forEach((sale) => {
+      const method = sale.payment_method || 'No especificado';
+      if (!grouped[method]) {
+        grouped[method] = { count: 0, total: 0 };
+      }
+      grouped[method].count += 1;
+      grouped[method].total += Number(sale.total);
+    });
+
+    const totalCount = Object.values(grouped).reduce((sum, m) => sum + m.count, 0);
+    const results = Object.entries(grouped).map(([name, data]) => ({
+      n: name,
+      v: totalCount > 0 ? Math.round((data.count / totalCount) * 100) : 0,
+    }));
+
+    return results;
+  },
 };

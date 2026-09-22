@@ -7,9 +7,10 @@ import { toast } from "sonner";
 import { PageHeader } from "./app-shell";
 import { ProductImage, StockBadge, money } from "./pos-ui";
 import { usePos } from "./pos-context";
-import { useProducts, useCreateProduct, useDeleteProduct } from "@/hooks/useProducts";
+import { useProducts, useCreateProduct, useDeleteProduct, useUpdateProduct } from "@/hooks/useProducts";
 import { useCategories } from "@/hooks/useCategories";
 import { useSuppliers } from "@/hooks/useSuppliers";
+import { useStockMovements } from "@/hooks/useStock";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -145,8 +146,16 @@ function ProductDialog({ trigger }: { trigger?: React.ReactNode }) {
 export function ProductsScreen() {
   const [grid, setGrid] = useState(false);
   const [q, setQ] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [showMovements, setShowMovements] = useState(false);
+  const [stockFilter, setStockFilter] = useState<"all" | "low" | "ok" | "critical" | "out">("all");
+  const [activeFilter, setActiveFilter] = useState<"all" | "active" | "inactive">("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const { t } = usePos();
   const { data: products = [], isLoading } = useProducts();
+  const { data: categories = [] } = useCategories();
   const deleteProduct = useDeleteProduct();
 
   const getStockState = (stock: number, minStock: number) => {
@@ -156,14 +165,37 @@ export function ProductsScreen() {
     return "ok";
   };
 
-  const filtered = q
-    ? products.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q.toLowerCase()) ||
-          p.sku.toLowerCase().includes(q.toLowerCase()) ||
-          (p.barcode?.includes(q) ?? false)
-      )
-    : products;
+  const filtered = products.filter((p) => {
+    // Búsqueda
+    if (q && !(
+      p.name.toLowerCase().includes(q.toLowerCase()) ||
+      p.sku.toLowerCase().includes(q.toLowerCase()) ||
+      (p.barcode?.includes(q) ?? false)
+    )) {
+      return false;
+    }
+
+    // Filtro de stock
+    const stockState = getStockState(Number(p.stock), Number(p.min_stock));
+    if (stockFilter !== "all" && stockState !== stockFilter) {
+      return false;
+    }
+
+    // Filtro de activo/inactivo
+    if (activeFilter === "active" && !p.active) {
+      return false;
+    }
+    if (activeFilter === "inactive" && p.active) {
+      return false;
+    }
+
+    // Filtro de categoría
+    if (categoryFilter !== "all" && p.category_id !== categoryFilter) {
+      return false;
+    }
+
+    return true;
+  });
 
   const handleDelete = async (id: string) => {
     try {
@@ -191,7 +223,7 @@ export function ProductsScreen() {
             placeholder="Buscar por nombre, código o SKU"
           />
         </div>
-        <Button variant="outline" disabled>
+        <Button variant="outline" onClick={() => setShowFilters(!showFilters)}>
           <SlidersHorizontal />
           Filtros
         </Button>
@@ -214,6 +246,53 @@ export function ProductsScreen() {
           </Button>
         </div>
       </div>
+
+      {showFilters && (
+        <div className="mb-4 grid grid-cols-3 gap-4 rounded-lg border bg-card p-4">
+          <div>
+            <Label className="text-xs mb-2 block">Estado de stock</Label>
+            <Select value={stockFilter} onValueChange={(v: any) => setStockFilter(v)}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="ok">Correcto</SelectItem>
+                <SelectItem value="low">Bajo</SelectItem>
+                <SelectItem value="critical">Crítico</SelectItem>
+                <SelectItem value="out">Sin stock</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs mb-2 block">Estado del producto</Label>
+            <Select value={activeFilter} onValueChange={(v: any) => setActiveFilter(v)}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="active">Activos</SelectItem>
+                <SelectItem value="inactive">Inactivos</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs mb-2 block">Categoría</Label>
+            <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v)}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                {categories.map((cat) => (
+                  <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
 
       {grid ? (
         <div className="grid grid-cols-4 gap-4">
@@ -278,13 +357,17 @@ export function ProductsScreen() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem>Editar producto</DropdownMenuItem>
-                          <DropdownMenuItem>Ver movimientos</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setEditingProduct(p)}>Editar producto</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => { setSelectedProduct(p); setShowMovements(true); }}>Ver movimientos</DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-destructive"
-                            onClick={() => handleDelete(p.id)}
+                            onClick={() => {
+                              if (confirm(`¿Desactivar "${p.name}"?`)) {
+                                handleDelete(p.id);
+                              }
+                            }}
                           >
-                            Eliminar
+                            Desactivar
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -296,6 +379,163 @@ export function ProductsScreen() {
           </div>
         </div>
       )}
+
+      {/* Diálogo de editar producto */}
+      {editingProduct && (
+        <EditProductDialog product={editingProduct} open={!!editingProduct} onOpenChange={() => setEditingProduct(null)} />
+      )}
+
+      {/* Diálogo de movimientos */}
+      {showMovements && selectedProduct && (
+        <MovementsDialog product={selectedProduct} open={showMovements} onOpenChange={setShowMovements} />
+      )}
     </>
+  );
+}
+
+interface MovementsDialogProps {
+  product: any;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+interface EditProductDialogProps {
+  product: any;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+function EditProductDialog({ product, open, onOpenChange }: EditProductDialogProps) {
+  const [salePriceEdit, setSalePriceEdit] = useState(String(product.sale_price));
+  const [costPriceEdit, setCostPriceEdit] = useState(String(product.cost_price));
+  const [minStockEdit, setMinStockEdit] = useState(String(product.min_stock));
+  const updateProduct = useUpdateProduct();
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await updateProduct.mutateAsync({
+        id: product.id,
+        updates: {
+          sale_price: Number(salePriceEdit),
+          cost_price: Number(costPriceEdit),
+          min_stock: Number(minStockEdit),
+        },
+      });
+      toast.success("Producto actualizado");
+      onOpenChange(false);
+    } catch (error) {
+      toast.error("Error al actualizar producto");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[500px]">
+        <DialogHeader>
+          <DialogTitle>Editar: {product.name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <Label className="text-xs text-muted-foreground">SKU (no editable)</Label>
+            <p className="text-sm font-mono">{product.sku}</p>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Código de barras</Label>
+            <p className="text-sm font-mono">{product.barcode || "-"}</p>
+          </div>
+          <div>
+            <Label htmlFor="sale-price">Precio de venta (€)</Label>
+            <Input
+              id="sale-price"
+              type="number"
+              step="0.01"
+              value={salePriceEdit}
+              onChange={(e) => setSalePriceEdit(e.target.value)}
+              placeholder="0.00"
+            />
+          </div>
+          <div>
+            <Label htmlFor="cost-price">Costo (€)</Label>
+            <Input
+              id="cost-price"
+              type="number"
+              step="0.01"
+              value={costPriceEdit}
+              onChange={(e) => setCostPriceEdit(e.target.value)}
+              placeholder="0.00"
+            />
+          </div>
+          <div>
+            <Label htmlFor="min-stock">Stock mínimo</Label>
+            <Input
+              id="min-stock"
+              type="number"
+              value={minStockEdit}
+              onChange={(e) => setMinStockEdit(e.target.value)}
+              placeholder="0"
+            />
+          </div>
+          <div className="rounded-sm bg-muted/50 p-3 text-xs text-muted-foreground">
+            <p><b>Stock actual:</b> {product.stock} unidades</p>
+            <p className="mt-1">⚠️ No puede editar stock manualmente (controlado por ventas y compras)</p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>Cancelar</Button>
+          <Button onClick={handleSave} disabled={isSaving}>
+            {isSaving ? "Guardando..." : "Guardar cambios"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MovementsDialog({ product, open, onOpenChange }: MovementsDialogProps) {
+  const { data: movements = [], isLoading } = useStockMovements(product.id);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[600px]">
+        <DialogHeader>
+          <DialogTitle>Movimientos: {product.name}</DialogTitle>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="p-8 text-center">Cargando movimientos...</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="border-b bg-muted/50 text-[10px] uppercase">
+                <tr>
+                  {["Fecha", "Tipo", "Cantidad", "Stock anterior", "Stock nuevo", "Fuente"].map((h) => (
+                    <th key={h} className="px-2 py-2 text-left font-semibold">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {movements.map((m) => (
+                  <tr key={m.id} className="border-b">
+                    <td className="px-2 py-1">{new Date(m.created_at).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                    <td className="px-2 py-1">{m.movement_type}</td>
+                    <td className="px-2 py-1">{m.quantity > 0 ? '+' : ''}{m.quantity}</td>
+                    <td className="px-2 py-1">{m.previous_stock}</td>
+                    <td className="px-2 py-1 font-semibold">{m.resulting_stock}</td>
+                    <td className="px-2 py-1">{m.source}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {movements.length === 0 && <div className="p-4 text-center text-muted-foreground">Sin movimientos</div>}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cerrar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

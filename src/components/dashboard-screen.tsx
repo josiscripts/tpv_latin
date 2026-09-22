@@ -12,22 +12,18 @@ function StatsRow() {
   const { data: stockStats } = useProducts();
 
   const stats = [
-    { label: "Ventas del día", value: todayStats ? money(todayStats.totalSales) : "0,00 €", trend: "+12%", note: "respecto ayer" },
-    { label: "Beneficio del día", value: todayStats ? money(todayStats.totalProfit) : "0,00 €", trend: "+8,4%", note: "margen" },
-    { label: "Productos en stock", value: stockStats?.length || 0, trend: "+6", note: "esta semana" },
-    { label: "Stock crítico", value: stockStats?.filter((p) => Number(p.stock) <= Number(p.min_stock)).length || 0, trend: "-3", note: "productos" },
+    { label: "Ventas del día", value: todayStats ? money(todayStats.totalSales) : "0,00 €" },
+    { label: "Beneficio del día", value: todayStats ? money(todayStats.totalProfit) : "0,00 €" },
+    { label: "Productos en stock", value: stockStats?.length || 0 },
+    { label: "Stock crítico", value: stockStats?.filter((p) => Number(p.stock) <= Number(p.min_stock)).length || 0 },
   ];
 
   return (
     <div className="grid grid-cols-4 gap-4">
-      {stats.map((s, i) => (
+      {stats.map((s) => (
         <div key={s.label} className="rounded-lg border bg-card p-5">
           <p className="text-xs font-medium text-muted-foreground">{s.label}</p>
           <p className="mt-2 text-[25px] font-bold tracking-normal">{s.value}</p>
-          <div className="mt-2 flex items-center gap-1.5 text-[11px]">
-            <span className={i === 3 ? "text-destructive" : "text-success"}>{s.trend}</span>
-            <span className="text-muted-foreground">{s.note}</span>
-          </div>
         </div>
       ))}
     </div>

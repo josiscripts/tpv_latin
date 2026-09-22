@@ -54,3 +54,10 @@ export function useStockStats() {
     refetchInterval: 60000,
   });
 }
+
+export function usePaymentMethodStats() {
+  return useQuery({
+    queryKey: [...DASHBOARD_KEY, 'payment-methods'],
+    queryFn: () => dashboardService.getPaymentMethodStats(),
+  });
+}
