@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
-import { Download, Trash2, Search } from 'lucide-react';
+import { Download, Trash2, Search, Upload, Edit2 } from 'lucide-react';
 import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,11 +9,18 @@ import {
   useDocuments,
   useDocumentsByDateRange,
   useDeleteDocument,
+  useUploadDocument,
+  useRenameDocument,
 } from '@/hooks/useDocuments';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { documentsService } from '@/services/documents.service';
 import { toast } from 'sonner';
 
 type DocumentType = 'invoice' | 'delivery_note';
+
+const ALLOWED_FORMATS = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'];
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
 export function DocumentsScreen() {
   const [documentType, setDocumentType] = useState<DocumentType | 'all'>('all');
@@ -21,8 +28,13 @@ export function DocumentsScreen() {
   const [toDate, setToDate] = useState<Date | null>(null);
   const [searchActive, setSearchActive] = useState(false);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [newName, setNewName] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const deleteDocument = useDeleteDocument();
+  const uploadDocument = useUploadDocument();
+  const renameDocument = useRenameDocument();
 
   // Fetch documents based on filters
   const filterObj = useMemo(() => {
@@ -122,6 +134,49 @@ export function DocumentsScreen() {
     }
   };
 
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const fileExt = '.' + file.name.split('.').pop()?.toLowerCase();
+    if (!ALLOWED_FORMATS.includes(fileExt)) {
+      toast.error(`Formato no permitido. Permitidos: ${ALLOWED_FORMATS.join(', ')}`);
+      return;
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error('El archivo no puede exceder 50 MB');
+      return;
+    }
+
+    try {
+      await uploadDocument.mutateAsync({
+        file,
+        documentType: documentType === 'all' ? 'invoice' : (documentType as DocumentType),
+      });
+      toast.success('Documento subido correctamente');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (error) {
+      toast.error('Error al subir documento');
+    }
+  };
+
+  const handleRename = async (docId: string) => {
+    if (!newName.trim()) {
+      toast.error('Ingrese un nombre válido');
+      return;
+    }
+
+    try {
+      await renameDocument.mutateAsync({ docId, newName });
+      toast.success('Documento renombrado');
+      setRenaming(null);
+      setNewName('');
+    } catch (error) {
+      toast.error('Error al renombrar documento');
+    }
+  };
+
   const handleDeleteDocument = async (docId: string) => {
     if (confirm('¿Eliminar este documento?')) {
       try {
@@ -147,6 +202,38 @@ export function DocumentsScreen() {
   return (
     <>
       <PageHeader title="Documentos" subtitle="Gestión de facturas y albaranes" />
+
+      {/* Upload Section */}
+      <div className="mb-6 rounded-lg border bg-card p-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-sm">Subir Documento</h3>
+          <label className="cursor-pointer">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ALLOWED_FORMATS.join(',')}
+              onChange={handleFileSelect}
+              className="hidden"
+              disabled={uploadDocument.isPending}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              asChild
+              className="cursor-pointer"
+              disabled={uploadDocument.isPending}
+            >
+              <span>
+                <Upload size={14} className="mr-1" />
+                {uploadDocument.isPending ? 'Subiendo...' : 'Subir Documento'}
+              </span>
+            </Button>
+          </label>
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">
+          Formatos permitidos: PDF, DOC, DOCX, JPG, JPEG, PNG (máx. 50 MB)
+        </p>
+      </div>
 
       {/* Filters Section */}
       <div className="mb-6 space-y-4 rounded-lg border bg-card p-4">
@@ -258,7 +345,7 @@ export function DocumentsScreen() {
                   </td>
                   <td className="px-4 py-3 font-medium">{doc.original_name}</td>
                   <td className="px-4 py-3">
-                    {format(new Date(doc.created_at), 'dd/MM/yyyy')}
+                    {format(new Date(doc.created_at), 'dd/MM/yyyy HH:mm')}
                   </td>
                   <td className="px-4 py-3">
                     {doc.sale_id && <span className="text-gray-600">Venta</span>}
@@ -271,6 +358,53 @@ export function DocumentsScreen() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex gap-2">
+                      <Dialog open={renaming === doc.id} onOpenChange={(open) => {
+                        if (!open) setRenaming(null);
+                      }}>
+                        <DialogTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setRenaming(doc.id);
+                              setNewName(doc.original_name);
+                            }}
+                            title="Renombrar"
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[400px]">
+                          <DialogHeader>
+                            <DialogTitle>Renombrar documento</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4">
+                            <div>
+                              <Label>Nuevo nombre</Label>
+                              <Input
+                                value={newName}
+                                onChange={(e) => setNewName(e.target.value)}
+                                placeholder="Nombre del documento"
+                              />
+                            </div>
+                          </div>
+                          <DialogFooter>
+                            <Button
+                              variant="outline"
+                              onClick={() => setRenaming(null)}
+                            >
+                              Cancelar
+                            </Button>
+                            <Button
+                              onClick={() => handleRename(doc.id)}
+                              disabled={renameDocument.isPending}
+                            >
+                              {renameDocument.isPending ? 'Guardando...' : 'Guardar'}
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+
                       <Button
                         size="sm"
                         variant="outline"
