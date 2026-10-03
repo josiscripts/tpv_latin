@@ -1,7 +1,8 @@
-import { Link, useRouterState } from "@tanstack/react-router";
-import { Bell, Boxes, ChartNoAxesCombined, ChevronLeft, CircleDollarSign, ClipboardList, FileText, LayoutDashboard, Menu, Moon, Package, Search, Settings, ShoppingBasket, ShoppingCart, Store, Sun, Tags, Truck, UsersRound } from "lucide-react";
+import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
+import { Bell, Boxes, ChartNoAxesCombined, ChevronLeft, CircleDollarSign, ClipboardList, FileText, LayoutDashboard, LogOut, Menu, Moon, Package, Search, Settings, ShoppingBasket, ShoppingCart, Store, Sun, Tags, Truck, UsersRound } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { usePos } from "./pos-context";
+import { useAuthContext } from "./auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,7 +13,7 @@ const nav=[
 ] as const;
 
 export function AppShell({children}:{children:ReactNode}){
- const {language,setLanguage,dark,setDark,t}=usePos(); const path=useRouterState({select:s=>s.location.pathname}); const [collapsed,setCollapsed]=useState(false);
+ const {language,setLanguage,dark,setDark,t}=usePos(); const path=useRouterState({select:s=>s.location.pathname}); const [collapsed,setCollapsed]=useState(false); const {logout,profile}=useAuthContext(); const navigate=useNavigate(); const handleLogout=async()=>{await logout();navigate({to:'/login'});};
  return <TooltipProvider><div className="flex h-dvh min-w-[1024px] overflow-hidden bg-background text-foreground">
   <aside className={`${collapsed?"w-[76px]":"w-[250px]"} flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200`}>
    <div className="flex h-[72px] items-center gap-3 border-b border-sidebar-border px-5">
@@ -31,7 +32,7 @@ export function AppShell({children}:{children:ReactNode}){
      <Select value={language} onValueChange={(v)=>setLanguage(v as "es"|"en"|"ca")}><SelectTrigger className="h-9 w-[118px]"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="es">ES · Español</SelectItem><SelectItem value="en">EN · English</SelectItem><SelectItem value="ca">CA · Català</SelectItem></SelectContent></Select>
      <Button variant="ghost" size="icon" onClick={()=>setDark(!dark)} aria-label="Cambiar tema">{dark?<Sun size={18}/>:<Moon size={18}/>}</Button>
      <Button variant="ghost" size="icon" className="relative" aria-label="Notificaciones"><Bell size={18}/><span className="absolute right-2 top-2 size-1.5 rounded-full bg-destructive"/></Button>
-     <div className="ml-2 flex items-center gap-2.5 border-l pl-4"><div className="grid size-9 place-items-center rounded-full bg-foreground text-xs font-semibold text-background">JE</div><div className="hidden xl:block"><div className="text-xs font-semibold">Josias Espinoza</div><div className="text-[10px] text-muted-foreground">Administrador</div></div></div>
+     <div className="ml-2 flex items-center gap-2.5 border-l pl-4"><div className="grid size-9 place-items-center rounded-full bg-foreground text-xs font-semibold text-background">{profile?.email?.charAt(0)?.toUpperCase() || 'U'}</div><div className="hidden xl:block"><div className="text-xs font-semibold">{profile?.full_name || profile?.email}</div><div className="text-[10px] text-muted-foreground capitalize">{profile?.role_id === 'admin' ? 'Administrador' : 'Empleado'}</div></div><Button variant="ghost" size="icon" onClick={handleLogout} className="ml-2" title="Cerrar sesión"><LogOut size={18}/></Button></div>
     </div>
    </header>
    <main className="min-h-0 flex-1 overflow-y-auto bg-muted/30"><div className="animate-page mx-auto max-w-[1660px] p-6 2xl:p-8">{children}</div></main>

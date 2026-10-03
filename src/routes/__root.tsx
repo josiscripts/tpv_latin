@@ -6,6 +6,7 @@ import {
   useRouter,
   HeadContent,
   Scripts,
+  useLocation,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 
@@ -13,6 +14,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { PosProvider } from "../components/pos-context";
 import { AppShell } from "../components/app-shell";
+import { AuthProvider, useAuthContext } from "../components/auth-provider";
 import { Toaster } from "../components/ui/sonner";
 import { useRealtimeSubscriptions } from "../hooks/useRealtimeSubscriptions";
 
@@ -118,11 +120,34 @@ function RootShell({ children }: { children: ReactNode }) {
 }
 
 function RealtimeInitializer({ children }: { children: ReactNode }) {
-  // Suscripción global única a Realtime (ejecuta solo una vez en toda la app)
-  // Este componente está DENTRO de QueryClientProvider, por lo que useQueryClient() funciona correctamente
   useRealtimeSubscriptions();
-
   return <>{children}</>;
+}
+
+function ProtectedLayout() {
+  const { isAuthenticated, loading } = useAuthContext();
+  const router = useRouter();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (!loading && !isAuthenticated && location.pathname !== '/login') {
+      router.navigate({ to: '/login' });
+    }
+  }, [isAuthenticated, loading, location.pathname, router]);
+
+  if (loading) {
+    return <div className="flex h-dvh items-center justify-center bg-background" />;
+  }
+
+  if (!isAuthenticated && location.pathname !== '/login') {
+    return null;
+  }
+
+  if (location.pathname === '/login') {
+    return <Outlet />;
+  }
+
+  return <AppShell><Outlet /></AppShell>;
 }
 
 function RootComponent() {
@@ -130,10 +155,14 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <RealtimeInitializer>
-        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-        <PosProvider><AppShell><Outlet /></AppShell><Toaster position="bottom-right" richColors /></PosProvider>
-      </RealtimeInitializer>
+      <AuthProvider>
+        <RealtimeInitializer>
+          <PosProvider>
+            <ProtectedLayout />
+            <Toaster position="bottom-right" richColors />
+          </PosProvider>
+        </RealtimeInitializer>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
