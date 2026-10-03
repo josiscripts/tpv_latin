@@ -135,18 +135,21 @@ function ProtectedLayout() {
     }
   }, [isAuthenticated, loading, location.pathname, router]);
 
+  // While loading auth, show loading screen
   if (loading) {
     return <div className="flex h-dvh items-center justify-center bg-background" />;
   }
 
-  if (!isAuthenticated && location.pathname !== '/login') {
-    return null;
+  // If not authenticated and trying to access protected route, show login
+  if (!isAuthenticated) {
+    if (location.pathname === '/login') {
+      return <Outlet />;
+    }
+    // Redirect will happen via useEffect above
+    return <div className="flex h-dvh items-center justify-center bg-background" />;
   }
 
-  if (location.pathname === '/login') {
-    return <Outlet />;
-  }
-
+  // If authenticated, show the app
   return <AppShell><Outlet /></AppShell>;
 }
 
