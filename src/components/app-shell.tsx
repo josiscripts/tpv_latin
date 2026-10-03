@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Bell, Boxes, ChartNoAxesCombined, ChevronLeft, CircleDollarSign, ClipboardList, LayoutDashboard, Menu, Moon, Package, Search, Settings, ShoppingBasket, ShoppingCart, Store, Sun, Tags, Truck, UsersRound } from "lucide-react";
+import { Bell, Boxes, ChartNoAxesCombined, ChevronLeft, CircleDollarSign, ClipboardList, FileText, LayoutDashboard, Menu, Moon, Package, Search, Settings, ShoppingBasket, ShoppingCart, Store, Sun, Tags, Truck, UsersRound } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { usePos } from "./pos-context";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const nav=[
- {to:"/",key:"dashboard",icon:LayoutDashboard},{to:"/pos",key:"pos",icon:ShoppingCart},{to:"/products",key:"products",icon:Package},{to:"/categories",key:"categories",icon:Tags},{to:"/stock",key:"stock",icon:Boxes},{to:"/suppliers",key:"suppliers",icon:Truck},{to:"/purchases",key:"purchases",icon:ShoppingBasket},{to:"/sales",key:"sales",icon:CircleDollarSign},{to:"/reports",key:"reports",icon:ChartNoAxesCombined},{to:"/settings",key:"settings",icon:Settings},
+ {to:"/",key:"dashboard",icon:LayoutDashboard},{to:"/pos",key:"pos",icon:ShoppingCart},{to:"/products",key:"products",icon:Package},{to:"/categories",key:"categories",icon:Tags},{to:"/stock",key:"stock",icon:Boxes},{to:"/suppliers",key:"suppliers",icon:Truck},{to:"/purchases",key:"purchases",icon:ShoppingBasket},{to:"/sales",key:"sales",icon:CircleDollarSign},{to:"/reports",key:"reports",icon:ChartNoAxesCombined},{to:"/documents",key:"documents",icon:FileText},{to:"/settings",key:"settings",icon:Settings},
 ] as const;
 
 export function AppShell({children}:{children:ReactNode}){
