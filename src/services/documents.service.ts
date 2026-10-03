@@ -140,6 +140,10 @@ export const documentsService = {
 
     if (uploadError) throw uploadError;
 
+    // Get authenticated user ID
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User must be authenticated to upload documents');
+
     // Crear registro en tabla
     const { data, error: dbError } = await supabase
       .from('documents')
@@ -151,7 +155,7 @@ export const documentsService = {
           original_name: file.name,
           file_path: filePath,
           file_size: file.size,
-          uploaded_by: 'anon',
+          uploaded_by: user.id,
         } as any,
       ])
       .select()
