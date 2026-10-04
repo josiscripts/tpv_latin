@@ -396,11 +396,15 @@ export function ProductsScreen() {
               <DialogTitle>{viewingProduct.name}</DialogTitle>
             </DialogHeader>
             <div className="space-y-6 py-4">
-              {viewingProduct.image && (
-                <div className="flex justify-center">
+              <div className="flex justify-center bg-muted rounded-lg p-8 min-h-64">
+                {viewingProduct.image ? (
                   <ProductImage product={viewingProduct} size="lg" />
-                </div>
-              )}
+                ) : (
+                  <div className="flex items-center justify-center text-muted-foreground">
+                    Sin imagen
+                  </div>
+                )}
+              </div>
 
               <div>
                 <h3 className="text-sm font-semibold mb-3">Información del producto</h3>
