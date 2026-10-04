@@ -75,7 +75,8 @@ export const dashboardService = {
     const { data, error } = await supabase
       .from('products')
       .select('*')
-      .is('deleted_at', null);
+      .is('deleted_at', null)
+      .eq('active', true);
 
     if (error) throw error;
 
@@ -173,7 +174,8 @@ export const dashboardService = {
     const { data, error } = await supabase
       .from('products')
       .select('stock, cost_price')
-      .is('deleted_at', null);
+      .is('deleted_at', null)
+      .eq('active', true);
 
     if (error) throw error;
 
@@ -185,7 +187,8 @@ export const dashboardService = {
     const { data, error } = await supabase
       .from('products')
       .select('stock, min_stock')
-      .is('deleted_at', null);
+      .is('deleted_at', null)
+      .eq('active', true);
 
     if (error) throw error;
 

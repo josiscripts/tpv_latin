@@ -11,6 +11,7 @@ export const productsService = {
       .from('products')
       .select('*')
       .is('deleted_at', null)
+      .eq('active', true)
       .order('name');
 
     if (error) throw error;
@@ -22,6 +23,7 @@ export const productsService = {
       .from('products')
       .select('*')
       .is('deleted_at', null)
+      .eq('active', true)
       .or(`name.ilike.%${query}%,sku.ilike.%${query}%,barcode.ilike.%${query}%`)
       .order('name');
 
