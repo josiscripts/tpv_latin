@@ -21,12 +21,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 const productSchema = z.object({
   name: z.string().min(1),
   barcode: z.string().optional(),
-  sku: z.string().min(1),
-  cost_price: z.coerce.number().min(0),
+  sku: z.string().optional().nullable(),
+  cost_price: z.coerce.number().min(0).nullable(),
   sale_price: z.coerce.number().min(0),
   stock: z.coerce.number().min(0),
   min_stock: z.coerce.number().min(0),
-  category_id: z.string().min(1),
+  category_id: z.string().optional().nullable(),
   supplier_id: z.string().optional().nullable(),
 });
 
@@ -148,6 +148,7 @@ export function ProductsScreen() {
   const [q, setQ] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [viewingProduct, setViewingProduct] = useState<any>(null);
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [showMovements, setShowMovements] = useState(false);
   const [stockFilter, setStockFilter] = useState<"all" | "low" | "ok" | "critical" | "out">("all");
@@ -169,7 +170,7 @@ export function ProductsScreen() {
     // Búsqueda
     if (q && !(
       p.name.toLowerCase().includes(q.toLowerCase()) ||
-      p.sku.toLowerCase().includes(q.toLowerCase()) ||
+      (p.sku?.toLowerCase().includes(q.toLowerCase()) ?? false) ||
       (p.barcode?.includes(q) ?? false)
     )) {
       return false;
@@ -323,7 +324,7 @@ export function ProductsScreen() {
             <table className="w-full min-w-[1120px] text-left text-[11px]">
               <thead className="border-b bg-muted/50 text-[10px] uppercase text-muted-foreground">
                 <tr>
-                  {["Producto", "Código de barras", "SKU", "P. venta", "Costo", "Beneficio", "Stock", "Estado", ""].map((x) => (
+                  {["Producto", "Categoría", "Código de barras", "SKU", "P. venta", "Costo", "Beneficio", "IVA", "Peso (kg)", "Stock", "Estado", ""].map((x) => (
                     <th key={x} className="px-4 py-3 font-semibold">
                       {x}
                     </th>
@@ -338,13 +339,18 @@ export function ProductsScreen() {
                         <b>{p.name}</b>
                       </div>
                     </td>
-                    <td className="px-4 font-mono text-muted-foreground">{p.barcode || "-"}</td>
-                    <td className="px-4">{p.sku}</td>
-                    <td className="px-4 font-semibold">{money(Number(p.sale_price))}</td>
-                    <td className="px-4 text-muted-foreground">{money(Number(p.cost_price))}</td>
-                    <td className="px-4 font-semibold text-success">
-                      {money(Number(p.sale_price) - Number(p.cost_price))}
+                    <td className="px-4 text-muted-foreground">
+                      {categories.find(c => c.id === p.category_id)?.name || "—"}
                     </td>
+                    <td className="px-4 font-mono text-muted-foreground">{p.barcode || "—"}</td>
+                    <td className="px-4">{p.sku || "—"}</td>
+                    <td className="px-4 font-semibold">{money(Number(p.sale_price))}</td>
+                    <td className="px-4 text-muted-foreground">{p.cost_price !== null ? money(Number(p.cost_price)) : "—"}</td>
+                    <td className="px-4 font-semibold text-success">
+                      {p.cost_price !== null ? money(Number(p.sale_price) - Number(p.cost_price)) : "—"}
+                    </td>
+                    <td className="px-4 text-muted-foreground">{p.tax_rate !== null ? `${p.tax_rate},00 %` : "—"}</td>
+                    <td className="px-4 text-muted-foreground">{p.weight_kg !== null && p.weight_kg > 0 ? `${Number(p.weight_kg).toFixed(2)} kg` : "—"}</td>
                     <td className="px-4 font-semibold">{p.stock}</td>
                     <td className="px-4">
                       <StockBadge state={getStockState(Number(p.stock), Number(p.min_stock)) as any} />
@@ -357,17 +363,18 @@ export function ProductsScreen() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setViewingProduct(p)}>Ver producto</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => setEditingProduct(p)}>Editar producto</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => { setSelectedProduct(p); setShowMovements(true); }}>Ver movimientos</DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-destructive"
                             onClick={() => {
-                              if (confirm(`¿Desactivar "${p.name}"?`)) {
+                              if (confirm(`Se ocultará "${p.name}" de los productos activos. El historial se mantiene.`)) {
                                 handleDelete(p.id);
                               }
                             }}
                           >
-                            Desactivar
+                            Ocultar producto
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -378,6 +385,87 @@ export function ProductsScreen() {
             </table>
           </div>
         </div>
+      )}
+
+      {/* Modal: Ver producto */}
+      {viewingProduct && (
+        <Dialog open={!!viewingProduct} onOpenChange={() => setViewingProduct(null)}>
+          <DialogContent className="sm:max-w-[550px]">
+            <DialogHeader>
+              <DialogTitle>{viewingProduct.name}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-6 py-4">
+              {viewingProduct.image && (
+                <div className="flex justify-center">
+                  <ProductImage product={viewingProduct} size="lg" />
+                </div>
+              )}
+
+              <div>
+                <h3 className="text-sm font-semibold mb-3">Información del producto</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">SKU:</span>
+                    <span className="font-mono">{viewingProduct.sku || "—"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Código de barras:</span>
+                    <span className="font-mono">{viewingProduct.barcode || "—"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Categoría:</span>
+                    <span>{categories.find(c => c.id === viewingProduct.category_id)?.name || "—"}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <h3 className="text-sm font-semibold mb-3">Descripción</h3>
+                <p className="text-sm whitespace-pre-wrap text-muted-foreground">{viewingProduct.description || "Sin descripción"}</p>
+              </div>
+
+              <div className="border-t pt-4">
+                <h3 className="text-sm font-semibold mb-3">Información comercial</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Precio de venta:</span>
+                    <span className="font-semibold">{money(Number(viewingProduct.sale_price))}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Coste:</span>
+                    <span className="font-semibold">{viewingProduct.cost_price !== null ? money(Number(viewingProduct.cost_price)) : "—"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Beneficio:</span>
+                    <span className="font-semibold text-success">{viewingProduct.cost_price !== null ? money(Number(viewingProduct.sale_price) - Number(viewingProduct.cost_price)) : "—"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">IVA:</span>
+                    <span className="font-semibold">{viewingProduct.tax_rate !== null ? `${viewingProduct.tax_rate}%` : "—"}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <h3 className="text-sm font-semibold mb-3">Inventario</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Stock actual:</span>
+                    <span className="font-semibold">{viewingProduct.stock} unidades</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Stock mínimo:</span>
+                    <span className="font-semibold">{viewingProduct.min_stock}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Peso:</span>
+                    <span className="font-semibold">{viewingProduct.weight_kg !== null && viewingProduct.weight_kg > 0 ? `${Number(viewingProduct.weight_kg).toFixed(2)} kg` : "—"}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Diálogo de editar producto */}
@@ -406,8 +494,6 @@ interface EditProductDialogProps {
 }
 
 function EditProductDialog({ product, open, onOpenChange }: EditProductDialogProps) {
-  const [salePriceEdit, setSalePriceEdit] = useState(String(product.sale_price));
-  const [costPriceEdit, setCostPriceEdit] = useState(String(product.cost_price));
   const [minStockEdit, setMinStockEdit] = useState(String(product.min_stock));
   const updateProduct = useUpdateProduct();
   const [isSaving, setIsSaving] = useState(false);
@@ -418,8 +504,6 @@ function EditProductDialog({ product, open, onOpenChange }: EditProductDialogPro
       await updateProduct.mutateAsync({
         id: product.id,
         updates: {
-          sale_price: Number(salePriceEdit),
-          cost_price: Number(costPriceEdit),
           min_stock: Number(minStockEdit),
         },
       });
@@ -439,38 +523,43 @@ function EditProductDialog({ product, open, onOpenChange }: EditProductDialogPro
           <DialogTitle>Editar: {product.name}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          <div>
-            <Label className="text-xs text-muted-foreground">SKU (no editable)</Label>
-            <p className="text-sm font-mono">{product.sku}</p>
+          <div className="rounded-sm bg-yellow-50 border border-yellow-200 p-3 text-xs text-yellow-800 dark:bg-yellow-950 dark:border-yellow-800 dark:text-yellow-200">
+            <p><b>⚠️ Sincronización automática</b></p>
+            <p className="mt-1">Precio de venta, coste y datos del producto se actualizan automáticamente desde Sysme. Solo puedes editar Stock Mínimo.</p>
           </div>
+
+          <div>
+            <Label className="text-xs text-muted-foreground">Nombre</Label>
+            <p className="text-sm font-semibold">{product.name}</p>
+          </div>
+
+          <div>
+            <Label className="text-xs text-muted-foreground">SKU</Label>
+            <p className="text-sm font-mono">{product.sku || "—"}</p>
+          </div>
+
           <div>
             <Label className="text-xs text-muted-foreground">Código de barras</Label>
-            <p className="text-sm font-mono">{product.barcode || "-"}</p>
+            <p className="text-sm font-mono">{product.barcode || "—"}</p>
           </div>
+
           <div>
-            <Label htmlFor="sale-price">Precio de venta (€)</Label>
-            <Input
-              id="sale-price"
-              type="number"
-              step="0.01"
-              value={salePriceEdit}
-              onChange={(e) => setSalePriceEdit(e.target.value)}
-              placeholder="0.00"
-            />
+            <Label className="text-xs text-muted-foreground">Precio de venta (€) — Sincronizado desde Sysme</Label>
+            <p className="text-sm font-semibold">{money(Number(product.sale_price))}</p>
           </div>
+
           <div>
-            <Label htmlFor="cost-price">Costo (€)</Label>
-            <Input
-              id="cost-price"
-              type="number"
-              step="0.01"
-              value={costPriceEdit}
-              onChange={(e) => setCostPriceEdit(e.target.value)}
-              placeholder="0.00"
-            />
+            <Label className="text-xs text-muted-foreground">Costo (€) — Sincronizado desde Sysme</Label>
+            <p className="text-sm font-semibold">{product.cost_price !== null ? money(Number(product.cost_price)) : "—"}</p>
           </div>
+
           <div>
-            <Label htmlFor="min-stock">Stock mínimo</Label>
+            <Label className="text-xs text-muted-foreground">IVA (%)</Label>
+            <p className="text-sm font-semibold">{product.tax_rate !== null ? `${product.tax_rate}%` : "—"}</p>
+          </div>
+
+          <div>
+            <Label htmlFor="min-stock">Stock mínimo — Editable</Label>
             <Input
               id="min-stock"
               type="number"
@@ -479,9 +568,15 @@ function EditProductDialog({ product, open, onOpenChange }: EditProductDialogPro
               placeholder="0"
             />
           </div>
-          <div className="rounded-sm bg-muted/50 p-3 text-xs text-muted-foreground">
-            <p><b>Stock actual:</b> {product.stock} unidades</p>
-            <p className="mt-1">⚠️ No puede editar stock manualmente (controlado por ventas y compras)</p>
+
+          <div>
+            <Label className="text-xs text-muted-foreground">Stock actual</Label>
+            <p className="text-sm font-semibold">{product.stock} unidades</p>
+          </div>
+
+          <div>
+            <Label className="text-xs text-muted-foreground">Peso</Label>
+            <p className="text-sm font-semibold">{product.weight_kg !== null && product.weight_kg > 0 ? `${Number(product.weight_kg).toFixed(2)} kg` : "—"}</p>
           </div>
         </div>
         <DialogFooter>
@@ -500,36 +595,37 @@ function MovementsDialog({ product, open, onOpenChange }: MovementsDialogProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px]">
+      <DialogContent className="sm:max-w-[700px]">
         <DialogHeader>
-          <DialogTitle>Movimientos: {product.name}</DialogTitle>
+          <DialogTitle>Historial de movimientos: {product.name}</DialogTitle>
         </DialogHeader>
         {isLoading ? (
-          <div className="p-8 text-center">Cargando movimientos...</div>
+          <div className="p-8 text-center text-muted-foreground">Cargando movimientos...</div>
+        ) : movements.length === 0 ? (
+          <div className="p-8 text-center text-muted-foreground">Sin movimientos de stock registrados</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="border-b bg-muted/50 text-[10px] uppercase">
                 <tr>
-                  {["Fecha", "Tipo", "Cantidad", "Stock anterior", "Stock nuevo", "Fuente"].map((h) => (
-                    <th key={h} className="px-2 py-2 text-left font-semibold">{h}</th>
+                  {["Fecha y hora", "Tipo", "Cantidad", "Stock anterior", "Stock nuevo", "Referencia"].map((h) => (
+                    <th key={h} className="px-3 py-2 text-left font-semibold">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {movements.map((m) => (
-                  <tr key={m.id} className="border-b">
-                    <td className="px-2 py-1">{new Date(m.created_at).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })}</td>
-                    <td className="px-2 py-1">{m.movement_type}</td>
-                    <td className="px-2 py-1">{m.quantity > 0 ? '+' : ''}{m.quantity}</td>
-                    <td className="px-2 py-1">{m.previous_stock}</td>
-                    <td className="px-2 py-1 font-semibold">{m.resulting_stock}</td>
-                    <td className="px-2 py-1">{m.source}</td>
+                {movements.map((m: any) => (
+                  <tr key={m.id} className="border-b hover:bg-muted/50">
+                    <td className="px-3 py-2 whitespace-nowrap">{new Date(m.created_at).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                    <td className="px-3 py-2 capitalize">{m.movement_type}</td>
+                    <td className="px-3 py-2 text-right">{m.quantity > 0 ? '+' : ''}{m.quantity}</td>
+                    <td className="px-3 py-2 text-right">{m.previous_stock}</td>
+                    <td className="px-3 py-2 text-right font-semibold">{m.resulting_stock}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{m.reason || "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {movements.length === 0 && <div className="p-4 text-center text-muted-foreground">Sin movimientos</div>}
           </div>
         )}
         <DialogFooter>
