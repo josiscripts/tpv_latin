@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import mysql from 'mysql2/promise';
 import { config, validateConfig } from './config';
+import { syncProductImages } from './image-sync';
 
 interface SyncCycle {
   timestamp: Date;
@@ -169,9 +170,11 @@ class BridgeContinuous {
 
     // Construir mapa por 4-tupla para búsqueda rápida
     const mappingMap = new Map<string, { product_id: string }>();
+    const productMap = new Map<string, string>(); // Para image-sync (id_complementog → product_id)
     (mappings || []).forEach((m: any) => {
       const key = `${m.id_empresa}|${m.id_centro}|${m.id_tipo_comg}|${m.id_complementog}`;
       mappingMap.set(key, { product_id: m.product_id });
+      productMap.set(m.id_complementog, m.product_id); // Para image-sync
     });
 
     const conn = await this.pool!.getConnection();
@@ -361,6 +364,18 @@ class BridgeContinuous {
         }
       }
 
+      // Sincronizar imágenes de todos los productos mapeados
+      try {
+        const imageResults = await syncProductImages(productMap, conn);
+        console.log(`[IMAGES] Synced: ${imageResults.synced}, Skipped: ${imageResults.skipped}`);
+        if (imageResults.errors && imageResults.errors.length > 0) {
+          console.log(`[IMAGES] Errors: ${imageResults.errors.length}`);
+          imageResults.errors.forEach((e: string) => console.log(`  [IMAGE_SYNC_ERROR] ${e}`));
+        }
+      } catch (error) {
+        console.log(`[IMAGES] Fatal error: ${(error as Error).message}`);
+      }
+
       return updatedCount + createdCount + deactivatedCount;
     } finally {
       conn.release();
@@ -387,11 +402,12 @@ class BridgeContinuous {
 
       const { data: mappings } = await this.supabase
         .from('sysme_product_map')
-        .select('id_complementog, product_id');
+        .select('id_empresa, id_centro, id_tipo_comg, id_complementog, product_id');
 
       const productMap = new Map<string, string>();
       (mappings || []).forEach((m: any) => {
-        productMap.set(m.id_complementog, m.product_id);
+        const key = `${m.id_empresa}|${m.id_centro}|${m.id_tipo_comg}|${m.id_complementog}`;
+        productMap.set(key, m.product_id);
       });
 
       let successCount = 0;
@@ -399,7 +415,7 @@ class BridgeContinuous {
       for (const ventaId of ventaIds) {
         try {
           const [ventaData] = await conn.query(`
-            SELECT vd.id_venta, vd.serie, vd.id_tiquet, vd.fecha_venta
+            SELECT vd.id_venta, vd.serie, vd.id_tiquet, vd.fecha_venta, vd.hora
             FROM ventadirecta vd WHERE vd.id_venta = ?
           `, [ventaId]);
 
@@ -407,30 +423,57 @@ class BridgeContinuous {
           if (!venta) continue;
 
           const [lineasData] = await conn.query(`
-            SELECT id_linea, id_complementog, cantidad, PVPTiquet, precio_compra, avgiva
+            SELECT id_linea, id_complementog, id_empresa, id_centro, id_tipo_comg, cantidad, precio, PVPTiquet, precio_compra, avgiva, descuento
             FROM ventadir_comg WHERE id_venta = ?
           `, [ventaId]);
 
           const lineas = lineasData as any[];
           if (lineas.length === 0) continue;
 
+          // Obtener método de pago de pagoscobros
+          const [pagosData] = await conn.query(`
+            SELECT DISTINCT pc.id_modo_pago, mp.modo_pago
+            FROM pagoscobros pc
+            LEFT JOIN modo_pago mp ON pc.id_modo_pago = mp.id_modo_pago
+            WHERE pc.id_venta = ?
+            LIMIT 1
+          `, [ventaId]);
+
+          const paymentMethod = (pagosData as any[])[0]?.modo_pago || 'unknown';
+
+          // Construir sale_date combinando fecha + hora, sin perder la zona horaria local
+          const fechaObj = new Date(venta.fecha_venta);
+          const year = fechaObj.getFullYear();
+          const month = String(fechaObj.getMonth() + 1).padStart(2, '0');
+          const day = String(fechaObj.getDate()).padStart(2, '0');
+          const dateStr = `${year}-${month}-${day}`;
+          const timeStr = venta.hora || '00:00:00';
+          const saleDateISO = `${dateStr}T${timeStr}`;
+
+          // Calcular totales usando avgiva por línea
+          const subtotal = lineas.reduce((sum: number, l: any) => sum + (l.cantidad * l.precio), 0);
+          const tax = lineas.reduce((sum: number, l: any) => sum + (l.cantidad * (l.PVPTiquet - l.precio)), 0);
+          const total = lineas.reduce((sum: number, l: any) => sum + (l.cantidad * l.PVPTiquet), 0);
+
           const payload = {
             sysme_id_venta: String(ventaId),
             sysme_serie: venta.serie || 'A',
             sysme_id_tiquet: venta.id_tiquet || '0001',
-            sale_date: venta.fecha_venta,
-            subtotal: lineas.reduce((sum: number, l: any) => sum + (l.cantidad * l.PVPTiquet * (1 - 0.21)), 0),
-            tax: lineas.reduce((sum: number, l: any) => sum + (l.cantidad * l.PVPTiquet * 0.21), 0),
-            total: lineas.reduce((sum: number, l: any) => sum + (l.cantidad * l.PVPTiquet), 0),
+            sale_date: saleDateISO,
+            subtotal: subtotal,
+            tax: tax,
+            total: total,
+            payment_method: paymentMethod,
             lineas: lineas.map((l: any) => ({
               sysme_id_venta: String(ventaId),
               sysme_id_linea: String(l.id_linea),
-              product_id: productMap.get(l.id_complementog),
-              cantidad: l.cantidad,
-              PVPTiquet: l.PVPTiquet,
-              precio_compra: l.precio_compra,
-              total: l.cantidad * l.PVPTiquet,
-              avgiva: l.avgiva,
+              product_id: productMap.get(`${l.id_empresa}|${l.id_centro}|${l.id_tipo_comg}|${l.id_complementog}`),
+              quantity: l.cantidad,
+              unit_sale_price: l.PVPTiquet,
+              unit_cost_at_time: l.precio_compra || null,
+              tax_rate: l.avgiva,
+              discount: l.descuento || 0,
+              total_sale: l.cantidad * l.PVPTiquet,
             })),
           };
 
