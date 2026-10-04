@@ -335,8 +335,9 @@ export function ProductsScreen() {
                 {filtered.map((p) => (
                   <tr key={p.id} className="border-b transition-colors last:border-0 hover:bg-muted/35">
                     <td className="px-4 py-2.5">
-                      <div>
-                        <b>{p.name}</b>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <ProductImage product={p as any} size="sm" />
+                        <b className="truncate">{p.name}</b>
                       </div>
                     </td>
                     <td className="px-4 text-muted-foreground">
