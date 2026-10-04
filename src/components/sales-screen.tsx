@@ -28,21 +28,20 @@ export function SalesScreen() {
   const selectedSaleData = sales.find((s) => s.id === selectedSale);
 
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('es-ES', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    });
+    const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      const [, year, month, day] = match;
+      return `${day}/${month}/${year}`;
+    }
+    return '—';
   };
 
   const formatTime = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleTimeString('es-ES', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    });
+    const match = dateStr.match(/T(\d{2}:\d{2}:\d{2})/);
+    if (match) {
+      return match[1];
+    }
+    return '—';
   };
 
   const getProductDisplay = (sale: any) => {
