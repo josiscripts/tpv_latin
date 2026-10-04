@@ -162,59 +162,206 @@ class BridgeContinuous {
   }
 
   private async syncProducts(): Promise<number> {
+    // Obtener mappings existentes (completos, con 4-tupla)
     const { data: mappings } = await this.supabase
       .from('sysme_product_map')
-      .select('id_complementog, product_id');
+      .select('id_empresa, id_centro, id_tipo_comg, id_complementog, product_id');
 
-    if (!mappings || mappings.length === 0) {
-      return 0;
-    }
-
-    const productMap = new Map<string, string>();
-    mappings.forEach((m: any) => {
-      productMap.set(m.id_complementog, m.product_id);
+    // Construir mapa por 4-tupla para búsqueda rápida
+    const mappingMap = new Map<string, { product_id: string }>();
+    (mappings || []).forEach((m: any) => {
+      const key = `${m.id_empresa}|${m.id_centro}|${m.id_tipo_comg}|${m.id_complementog}`;
+      mappingMap.set(key, { product_id: m.product_id });
     });
 
     const conn = await this.pool!.getConnection();
+    let updatedCount = 0;
+    let createdCount = 0;
+    let deactivatedCount = 0;
 
     try {
+      // PASO 2.5: FASE 3D - Detectar y desactivar productos eliminados de Sysme
+      try {
+        // Obtener productos existentes en Supabase con mapping
+        const { data: mappedProducts } = await this.supabase
+          .from('sysme_product_map')
+          .select('product_id, id_empresa, id_centro, id_tipo_comg, id_complementog');
+
+        if (mappedProducts && mappedProducts.length > 0) {
+          // Obtener lista de productos existentes en Sysme
+          const [sysmeRows] = await conn.query(`
+            SELECT DISTINCT
+              id_empresa,
+              id_centro,
+              id_tipo_comg,
+              id_complementog
+            FROM complementog
+          `);
+
+          // Validación de seguridad: Sysme devolvió 0 productos
+          if (!sysmeRows || (sysmeRows as any[]).length === 0) {
+            console.log('[DEACTIVATION] Safety abort: Sysme returned 0 products (connection error suspected)');
+          } else {
+            // Construir set de claves Sysme (4-tupla completa)
+            const sysmeKeys = new Set<string>();
+            (sysmeRows as any[]).forEach(row => {
+              const key = `${row.id_empresa}|${row.id_centro}|${row.id_tipo_comg}|${row.id_complementog}`;
+              sysmeKeys.add(key);
+            });
+
+            // Detectar productos eliminados (en Supabase pero NO en Sysme)
+            const eliminados: Array<{ product_id: string; key: string }> = [];
+            for (const mapped of mappedProducts) {
+              const key = `${mapped.id_empresa}|${mapped.id_centro}|${mapped.id_tipo_comg}|${mapped.id_complementog}`;
+              if (!sysmeKeys.has(key)) {
+                eliminados.push({ product_id: mapped.product_id, key });
+              }
+            }
+
+            // Validación de seguridad: Demasiados eliminados (>50%)
+            if (eliminados.length > mappedProducts.length * 0.5) {
+              console.log(
+                `[DEACTIVATION] Safety abort: Attempting to deactivate ${eliminados.length}/${mappedProducts.length} products (>50%)`
+              );
+            } else if (eliminados.length > 0) {
+              // Desactivar productos eliminados
+              for (const deleted of eliminados) {
+                try {
+                  const { error } = await this.supabase
+                    .from('products')
+                    .update({ active: false })
+                    .eq('id', deleted.product_id);
+
+                  if (!error) {
+                    deactivatedCount++;
+                    console.log(`[PRODUCT_DEACTIVATED] ${deleted.key} → ${deleted.product_id}`);
+                  } else {
+                    console.log(`[PRODUCT_DEACTIVATION_ERROR] ${deleted.key}: ${error.message}`);
+                  }
+                } catch (error) {
+                  console.log(`[PRODUCT_DEACTIVATION_EXCEPTION] ${deleted.key}: ${(error as Error).message}`);
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.log(`[DEACTIVATION_PROCESS_ERROR] ${(error as Error).message}`);
+      }
+
+      // CAMBIO CRÍTICO: Obtener TODOS los productos de Sysme, no filtrados por mapping
       const [productosRows] = await conn.query(`
         SELECT DISTINCT
+          c.id_empresa,
+          c.id_centro,
+          c.id_tipo_comg,
           c.id_complementog,
           c.complementog,
           COALESCE(c.PVP, c.precio, 0) as precio,
-          COALESCE(c.precio_coste, 0) as coste,
-          COALESCE(ac.cantidad, 0) as cantidad
+          c.precio_coste as coste,
+          COALESCE(ac.cantidad, 0) as cantidad,
+          COALESCE(c.avgiva, 21.00) as tax_rate,
+          c.peso as weight_kg,
+          c.codbarras as barcode,
+          c.descatalogado,
+          c.venta
         FROM complementog c
         LEFT JOIN almacen_complementg ac ON c.id_complementog = ac.id_complementog
           AND c.id_empresa = ac.id_empresa AND c.id_centro = ac.id_centro
-        WHERE c.id_complementog IN (${Array.from(productMap.keys()).map((id) => `'${id}'`).join(',')})
         ORDER BY c.id_complementog ASC
       `);
 
       const productos = (productosRows as any[]);
-      let updatedCount = 0;
 
       for (const producto of productos) {
-        const supabaseId = productMap.get(producto.id_complementog);
-        if (!supabaseId) continue;
+        const mapKey = `${producto.id_empresa}|${producto.id_centro}|${producto.id_tipo_comg}|${producto.id_complementog}`;
+        const existingMapping = mappingMap.get(mapKey);
 
-        const { error } = await this.supabase
-          .from('products')
-          .update({
-            name: producto.complementog,
-            cost_price: producto.coste,
-            sale_price: producto.precio,
-            stock: producto.cantidad,
-          })
-          .eq('id', supabaseId);
+        if (existingMapping) {
+          // CASO 1: Mapping existe → UPDATE producto
+          const { error } = await this.supabase
+            .from('products')
+            .update({
+              name: producto.complementog,
+              cost_price: producto.coste,
+              sale_price: producto.precio,
+              stock: producto.cantidad,
+              tax_rate: producto.tax_rate,
+              weight_kg: producto.weight_kg,
+              barcode: producto.barcode,
+              active: producto.venta === 'S',
+            })
+            .eq('id', existingMapping.product_id);
 
-        if (!error) {
-          updatedCount++;
+          if (!error) {
+            updatedCount++;
+          }
+        } else {
+          // CASO 2: Mapping NO existe → CREATE producto + CREATE mapping
+          try {
+            // Determinar active: venta='S' → true, else → false
+            const isActive = producto.venta === 'S';
+
+            // Crear producto en Supabase
+            const { data: newProduct, error: createError } = await this.supabase
+              .from('products')
+              .insert({
+                name: producto.complementog,
+                cost_price: producto.coste,
+                sale_price: producto.precio,
+                stock: producto.cantidad,
+                tax_rate: producto.tax_rate,
+                weight_kg: producto.weight_kg,
+                barcode: producto.barcode,
+                active: isActive,
+              })
+              .select()
+              .single();
+
+            if (createError || !newProduct) {
+              console.log(
+                `[PRODUCT_CREATE_ERROR] ${mapKey}: ${createError?.message || 'Unknown error'}`
+              );
+              continue;
+            }
+
+            // Crear mapping en sysme_product_map
+            const { error: mappingError } = await this.supabase
+              .from('sysme_product_map')
+              .insert({
+                product_id: newProduct.id,
+                id_empresa: producto.id_empresa,
+                id_centro: producto.id_centro,
+                id_tipo_comg: producto.id_tipo_comg,
+                id_complementog: producto.id_complementog,
+              });
+
+            if (mappingError) {
+              console.log(
+                `[MAPPING_CREATE_ERROR] ${mapKey}: ${mappingError.message}`
+              );
+              // Intentar limpiar el producto creado (best effort)
+              await this.supabase
+                .from('products')
+                .delete()
+                .eq('id', newProduct.id);
+              continue;
+            }
+
+            createdCount++;
+            console.log(
+              `[PRODUCT_CREATED] ${mapKey} → ${newProduct.id}`
+            );
+          } catch (error) {
+            console.log(
+              `[PRODUCT_CREATE_EXCEPTION] ${mapKey}: ${(error as Error).message}`
+            );
+            continue;
+          }
         }
       }
 
-      return updatedCount;
+      return updatedCount + createdCount + deactivatedCount;
     } finally {
       conn.release();
     }
