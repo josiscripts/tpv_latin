@@ -289,7 +289,7 @@ class BridgeContinuous {
               tax_rate: producto.tax_rate,
               weight_kg: producto.weight_kg,
               barcode: producto.barcode,
-              active: producto.venta === 'S',
+              active: producto.venta === 'S' && producto.descatalogado !== 'S',
             })
             .eq('id', existingMapping.product_id);
 
@@ -299,8 +299,8 @@ class BridgeContinuous {
         } else {
           // CASO 2: Mapping NO existe → CREATE producto + CREATE mapping
           try {
-            // Determinar active: venta='S' → true, else → false
-            const isActive = producto.venta === 'S';
+            // Determinar active: venta='S' && descatalogado!='S' → true, else → false
+            const isActive = producto.venta === 'S' && producto.descatalogado !== 'S';
 
             // Crear producto en Supabase
             const { data: newProduct, error: createError } = await this.supabase
