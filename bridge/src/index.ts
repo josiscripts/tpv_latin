@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import mysql from 'mysql2/promise';
+import fs from 'fs';
+import path from 'path';
 import { config, validateConfig } from './config';
 import { syncProductImages } from './image-sync';
 
@@ -18,13 +20,58 @@ class BridgeContinuous {
   private isRunning = false;
   private cycles: SyncCycle[] = [];
   private syncInterval: number;
+  private lockFilePath: string;
 
   constructor() {
     this.supabase = createClient(config.supabase.url, config.supabase.serviceKey);
     this.syncInterval = parseInt(process.env.SYNC_INTERVAL_MS || '30000');
+    this.lockFilePath = path.join(__dirname, '..', '..', '.bridge-lock');
+  }
+
+  private acquireLock(): boolean {
+    try {
+      if (fs.existsSync(this.lockFilePath)) {
+        const lockContent = fs.readFileSync(this.lockFilePath, 'utf-8');
+        const lockPid = parseInt(lockContent);
+        console.error('[LOCK] ✗ Another Bridge instance is already running (PID: ' + lockPid + ')');
+        console.error('[LOCK] To force start, delete: ' + this.lockFilePath);
+        return false;
+      }
+      fs.writeFileSync(this.lockFilePath, process.pid.toString());
+      return true;
+    } catch (error) {
+      console.error('[LOCK] Error acquiring lock: ' + (error as Error).message);
+      return false;
+    }
+  }
+
+  private releaseLock(): void {
+    try {
+      if (fs.existsSync(this.lockFilePath)) {
+        fs.unlinkSync(this.lockFilePath);
+      }
+    } catch (error) {
+      console.error('[LOCK] Error releasing lock: ' + (error as Error).message);
+    }
   }
 
   async initialize(): Promise<void> {
+    // Verificar que solo UNA instancia del Bridge está ejecutando
+    if (!this.acquireLock()) {
+      process.exit(1);
+    }
+
+    // Limpiar lock file al salir
+    process.on('exit', () => this.releaseLock());
+    process.on('SIGINT', () => {
+      this.releaseLock();
+      process.exit(0);
+    });
+    process.on('SIGTERM', () => {
+      this.releaseLock();
+      process.exit(0);
+    });
+
     // Validar configuración
     const errors = validateConfig();
     if (errors.length > 0) {
