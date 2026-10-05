@@ -152,6 +152,9 @@ class BridgeContinuous {
 
       this.cycles.push(cycle);
 
+      // Registrar estado de productos representativos después del ciclo
+      await this.recordCycleState();
+
       if (this.cycles.length > 100) {
         this.cycles = this.cycles.slice(-100);
       }
@@ -159,6 +162,72 @@ class BridgeContinuous {
       console.error(`[CICLO] Error fatal: ${(error as Error).message}`);
       cycle.errors.push(`Fatal: ${(error as Error).message}`);
       this.cycles.push(cycle);
+    }
+  }
+
+  private async recordCycleState(): Promise<void> {
+    try {
+      const cycleNum = this.cycles.length;
+      const conn = await this.pool!.getConnection();
+
+      // Obtener datos de Sysme
+      const [sysmeRows] = await conn.query(`
+        SELECT
+          c.id_complementog,
+          COALESCE(c.precio_compra, 0) as coste,
+          COALESCE(c.PVP, c.precio, 0) as precio
+        FROM complementog c
+        WHERE c.id_complementog IN ('00001', '00002', '00008', '00010', '00016')
+        ORDER BY c.id_complementog
+      `);
+
+      conn.release();
+
+      const sysmeData = new Map();
+      (sysmeRows as any[]).forEach(row => {
+        sysmeData.set(row.id_complementog, { coste: row.coste, precio: row.precio });
+      });
+
+      // Obtener datos de Supabase
+      const { data: products } = await this.supabase
+        .from('sysme_product_map')
+        .select(`
+          id_complementog,
+          product_id,
+          products!inner(
+            id,
+            name,
+            cost_price,
+            sale_price,
+            category_id,
+            image,
+            active
+          )
+        `)
+        .in('id_complementog', ['00001', '00002', '00008', '00010', '00016'])
+        .limit(10);
+
+      if (products && products.length > 0) {
+        console.log(`\n[CYCLE_STATE_${cycleNum}] Estado después del ciclo:`);
+        console.log('Prod | Coste Sysme | Coste Supa | Match | Precio Sys | Precio Supa | Match | Cat | Img');
+        console.log('-----|-------------|------------|-------|------------|-------------|-------|-----|----');
+
+        for (const p of products) {
+          const prod = p.products as any;
+          const sysme = sysmeData.get(p.id_complementog) || { coste: 'NULL', precio: 'NULL' };
+          const costMatch = sysme.coste === prod.cost_price ? 'OK' : 'DIFF';
+          const priceMatch = Math.abs((sysme.precio as number) - (prod.sale_price as number)) < 0.01 ? 'OK' : 'DIFF';
+          const catStr = prod.category_id ? 'Y' : 'N';
+          const imgStr = prod.image ? 'Y' : 'N';
+
+          const costVal = prod.cost_price || 'NULL';
+          const priceVal = prod.sale_price || 'NULL';
+
+          console.log(`${p.id_complementog.padEnd(5)}| ${String(sysme.coste).substring(0,11).padEnd(11)} | ${String(costVal).substring(0,10).padEnd(10)} | ${costMatch.padEnd(5)} | ${String(sysme.precio).substring(0,10).padEnd(10)} | ${String(priceVal).substring(0,11).padEnd(11)} | ${priceMatch.padEnd(5)} | ${catStr.padEnd(3)} | ${imgStr.padEnd(4)}`);
+        }
+      }
+    } catch (error) {
+      console.log(`[CYCLE_STATE_ERROR] ${(error as Error).message}`);
     }
   }
 
@@ -261,7 +330,7 @@ class BridgeContinuous {
           c.id_complementog,
           c.complementog,
           COALESCE(c.PVP, c.precio, 0) as precio,
-          c.precio_coste as coste,
+          c.precio_compra as coste,
           COALESCE(ac.cantidad, 0) as cantidad,
           COALESCE(c.avgiva, 21.00) as tax_rate,
           c.peso as weight_kg,
@@ -281,23 +350,100 @@ class BridgeContinuous {
         const existingMapping = mappingMap.get(mapKey);
 
         if (existingMapping) {
-          // CASO 1: Mapping existe → UPDATE producto
-          const { error } = await this.supabase
-            .from('products')
-            .update({
-              name: producto.complementog,
-              cost_price: producto.coste,
-              sale_price: producto.precio,
-              stock: producto.cantidad,
-              tax_rate: producto.tax_rate,
-              weight_kg: producto.weight_kg,
-              barcode: producto.barcode,
-              active: producto.venta === 'S' && producto.descatalogado !== 'S',
-            })
-            .eq('id', existingMapping.product_id);
+          // CASO 1: Mapping existe → RECONCILIAR producto (comparar y actualizar solo si necesario)
 
-          if (!error) {
-            updatedCount++;
+          // Resolver category_id desde tipo_comg_categories
+          let categoryId: string | null = null;
+          const { data: categoryMapping } = await this.supabase
+            .from('tipo_comg_categories')
+            .select('category_id')
+            .eq('id_empresa', producto.id_empresa)
+            .eq('id_centro', producto.id_centro)
+            .eq('id_tipo_comg', producto.id_tipo_comg)
+            .single();
+
+          if (!categoryMapping) {
+            console.log(
+              `[CATEGORY_MAPPING_MISSING] ${mapKey}: no mapping found for id_tipo_comg=${producto.id_tipo_comg}`
+            );
+          } else {
+            categoryId = categoryMapping.category_id;
+          }
+
+          // Obtener valores actuales de Supabase para comparación
+          const { data: currentProduct, error: fetchError } = await this.supabase
+            .from('products')
+            .select('name, cost_price, sale_price, stock, tax_rate, weight_kg, barcode, active, category_id')
+            .eq('id', existingMapping.product_id)
+            .single();
+
+          if (fetchError) {
+            console.log(`[RECONCILIATION_FETCH_ERROR] ${mapKey}: ${fetchError.message}`);
+            continue;
+          }
+
+          // Construir objeto con valores esperados (lo que debe estar en Supabase)
+          const expectedData: any = {
+            name: producto.complementog,
+            cost_price: producto.coste,
+            sale_price: producto.precio,
+            stock: producto.cantidad,
+            tax_rate: producto.tax_rate,
+            weight_kg: producto.weight_kg,
+            barcode: producto.barcode,
+            active: producto.venta === 'S' && producto.descatalogado !== 'S',
+          };
+
+          if (categoryId) {
+            expectedData.category_id = categoryId;
+          }
+
+          // DEBUG: Log detallado para productos de prueba
+          if (['00001', '00002', '00016'].includes(producto.id_complementog)) {
+            console.log(`\n[EVIDENCE_BEFORE] ${producto.id_complementog}:`);
+            console.log(`  Sysme.precio_compra → producto.coste: ${producto.coste} (type=${typeof producto.coste})`);
+            console.log(`  Supabase.cost_price (current): ${(currentProduct as any)?.cost_price}`);
+          }
+
+          // RECONCILIACIÓN: Comparar y detectar cambios reales
+          const changedFields: string[] = [];
+          Object.entries(expectedData).forEach(([key, expectedValue]) => {
+            const currentValue = (currentProduct as any)?.[key];
+            if (currentValue !== expectedValue) {
+              changedFields.push(key);
+            }
+          });
+
+          // Solo actualizar si hay cambios detectados
+          if (changedFields.length > 0) {
+            // DIAGNÓSTICO: Log BEFORE UPDATE
+            console.log(`[PRODUCT_WRITE_BEFORE] ${mapKey}: cost_price=${expectedData.cost_price}, sale_price=${expectedData.sale_price}`);
+
+            // UPDATE con RETURNING para capturar exactamente qué escribe PostgreSQL
+            const { data: returnedData, error: updateError } = await this.supabase
+              .from('products')
+              .update(expectedData)
+              .eq('id', existingMapping.product_id)
+              .select('id, cost_price, sale_price, updated_at')
+              .single();
+
+            if (updateError) {
+              console.log(`[RECONCILIATION_UPDATE_ERROR] ${mapKey}: ${updateError.message}`);
+            } else {
+              updatedCount++;
+              console.log(`[RECONCILIATION_UPDATED] ${mapKey}: ${changedFields.join(', ')}`);
+
+              // DIAGNÓSTICO: Log RETURNING (lo que PostgreSQL devolvió)
+              console.log(`[PRODUCT_WRITE_RETURNING] ${mapKey}: cost_price=${returnedData?.cost_price}, sale_price=${returnedData?.sale_price}, updated_at=${returnedData?.updated_at}`);
+
+              // DIAGNÓSTICO: Verificación inmediata (leer de nuevo)
+              const { data: verifyData } = await this.supabase
+                .from('products')
+                .select('cost_price, sale_price, updated_at')
+                .eq('id', existingMapping.product_id)
+                .single();
+              console.log(`[PRODUCT_VERIFY_IMMEDIATE] ${mapKey}: cost_price=${verifyData?.cost_price}, sale_price=${verifyData?.sale_price}, updated_at=${verifyData?.updated_at}`);
+            }
           }
         } else {
           // CASO 2: Mapping NO existe → CREATE producto + CREATE mapping
@@ -305,19 +451,44 @@ class BridgeContinuous {
             // Determinar active: venta='S' && descatalogado!='S' → true, else → false
             const isActive = producto.venta === 'S' && producto.descatalogado !== 'S';
 
+            // Resolver category_id desde tipo_comg_categories
+            let categoryId: string | null = null;
+            const { data: categoryMapping } = await this.supabase
+              .from('tipo_comg_categories')
+              .select('category_id')
+              .eq('id_empresa', producto.id_empresa)
+              .eq('id_centro', producto.id_centro)
+              .eq('id_tipo_comg', producto.id_tipo_comg)
+              .single();
+
+            if (!categoryMapping) {
+              console.log(
+                `[CATEGORY_MAPPING_MISSING] ${mapKey}: no mapping found for id_tipo_comg=${producto.id_tipo_comg}`
+              );
+            } else {
+              categoryId = categoryMapping.category_id;
+            }
+
             // Crear producto en Supabase
+            const insertData: any = {
+              name: producto.complementog,
+              cost_price: producto.coste,
+              sale_price: producto.precio,
+              stock: producto.cantidad,
+              tax_rate: producto.tax_rate,
+              weight_kg: producto.weight_kg,
+              barcode: producto.barcode,
+              active: isActive,
+            };
+
+            // Incluir category_id si existe mapping
+            if (categoryId) {
+              insertData.category_id = categoryId;
+            }
+
             const { data: newProduct, error: createError } = await this.supabase
               .from('products')
-              .insert({
-                name: producto.complementog,
-                cost_price: producto.coste,
-                sale_price: producto.precio,
-                stock: producto.cantidad,
-                tax_rate: producto.tax_rate,
-                weight_kg: producto.weight_kg,
-                barcode: producto.barcode,
-                active: isActive,
-              })
+              .insert(insertData)
               .select()
               .single();
 
@@ -366,7 +537,7 @@ class BridgeContinuous {
 
       // Sincronizar imágenes de todos los productos mapeados
       try {
-        const imageResults = await syncProductImages(productMap, conn);
+        const imageResults = await syncProductImages(productMap, conn, this.supabase);
         console.log(`[IMAGES] Synced: ${imageResults.synced}, Skipped: ${imageResults.skipped}`);
         if (imageResults.errors && imageResults.errors.length > 0) {
           console.log(`[IMAGES] Errors: ${imageResults.errors.length}`);
@@ -374,6 +545,23 @@ class BridgeContinuous {
         }
       } catch (error) {
         console.log(`[IMAGES] Fatal error: ${(error as Error).message}`);
+      }
+
+      // DIAGNÓSTICO: Verificar state DESPUÉS de todo el ciclo
+      try {
+        console.log('[PRODUCT_VERIFY_AFTER_CYCLE] Checking state after full cycle...');
+        const { data: afterCycleCheck } = await this.supabase
+          .from('products')
+          .select('id, cost_price')
+          .in('id', Array.from(productMap.values()));
+
+        if (afterCycleCheck) {
+          for (const prod of afterCycleCheck.slice(0, 3)) {
+            console.log(`  [AFTER_CYCLE] ${prod.id}: cost_price=${prod.cost_price}`);
+          }
+        }
+      } catch (error) {
+        console.log(`[AFTER_CYCLE_ERROR] ${(error as Error).message}`);
       }
 
       return updatedCount + createdCount + deactivatedCount;

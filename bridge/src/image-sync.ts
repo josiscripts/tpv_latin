@@ -1,9 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
 import mysql from 'mysql2/promise';
 import crypto from 'crypto';
-import { config } from './config';
-
-const supabase = createClient(config.supabase.url, config.supabase.serviceKey);
 
 function detectImageFormat(buffer: Buffer): { format: string; mime: string } {
   const magicBytes = buffer.slice(0, 12);
@@ -22,7 +18,8 @@ function calculateHash(buffer: Buffer): string {
 
 export async function syncProductImages(
   productMap: Map<string, string>,
-  conn: any
+  conn: any,
+  supabase: any
 ): Promise<any> {
   const results: any = { synced: 0, skipped: 0, errors: [] };
 
@@ -44,10 +41,6 @@ export async function syncProductImages(
       );
 
       if (!imageData || imageData.length === 0 || !imageData[0].imagen) {
-        await supabase
-          .from('products')
-          .update({ image: null })
-          .eq('id', productId);
         results.skipped++;
         continue;
       }

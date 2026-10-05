@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import mysql from 'mysql2/promise';
 import { config } from './config';
+import { syncProductImages } from './image-sync';
 
 async function syncProducts() {
   console.log('\n╔════════════════════════════════════════════════════════════╗');
@@ -47,10 +48,15 @@ async function syncProducts() {
         c.id_complementog,
         c.complementog,
         COALESCE(c.PVP, c.precio, 0) as precio,
-        COALESCE(c.precio_coste, 0) as coste,
+        COALESCE(c.precio_compra, 0) as coste,
         COALESCE(ac.cantidad, 0) as cantidad,
         COALESCE(c.id_tipo_comg, '01') as id_tipo_comg,
-        COALESCE(c.descatalogado, 'N') as descatalogado
+        COALESCE(c.descatalogado, 'N') as descatalogado,
+        CASE WHEN c.visible_web = 'Y' THEN true WHEN c.visible_web = 'N' THEN false ELSE NULL END as visible_web,
+        c.descripcion,
+        CASE WHEN c.Venta = 'S' THEN true WHEN c.Venta = 'N' THEN false ELSE NULL END as venta,
+        CASE WHEN c.Compra = 'S' THEN true WHEN c.Compra = 'N' THEN false ELSE NULL END as compra,
+        CASE WHEN c.Inventario = 'S' THEN true WHEN c.Inventario = 'N' THEN false ELSE NULL END as inventario
       FROM complementog c
       LEFT JOIN almacen_complementg ac ON c.id_complementog = ac.id_complementog AND c.id_empresa = ac.id_empresa AND c.id_centro = ac.id_centro
       WHERE c.id_complementog IN (${Array.from(productMap.keys()).map((id) => `'${id}'`).join(',')})
@@ -102,6 +108,11 @@ async function syncProducts() {
             cost_price: producto.coste,
             sale_price: producto.precio,
             stock: producto.cantidad,
+            visible_web: producto.visible_web,
+            description: producto.descripcion || null,
+            venta: producto.venta,
+            compra: producto.compra,
+            inventario: producto.inventario,
           })
           .eq('id', supabaseId);
 
@@ -130,9 +141,23 @@ async function syncProducts() {
     console.log();
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 4. VALIDAR SINCRONIZACIÓN
+    // 4. SINCRONIZAR IMÁGENES
     // ═══════════════════════════════════════════════════════════════════════
-    console.log('4. VALIDAR SINCRONIZACIÓN\n');
+    console.log('4. SINCRONIZAR IMÁGENES\n');
+
+    const imageResults = await syncProductImages(productMap, conn, supabase);
+    console.log(`  Imágenes sincronizadas: ${imageResults.synced}`);
+    console.log(`  Imágenes sin cambios: ${imageResults.skipped}`);
+    if (imageResults.errors && imageResults.errors.length > 0) {
+      console.log(`  Errores: ${imageResults.errors.length}`);
+      imageResults.errors.forEach((e: string) => console.log(`    - ${e}`));
+    }
+    console.log();
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 6. VALIDAR SINCRONIZACIÓN
+    // ═══════════════════════════════════════════════════════════════════════
+    console.log('6. VALIDAR SINCRONIZACIÓN\n');
 
     const successful = syncResults.filter((r) => r.success).length;
     const failed = syncResults.filter((r) => !r.success).length;
@@ -150,9 +175,9 @@ async function syncProducts() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 5. COMPARAR DATOS
+    // 7. COMPARAR DATOS
     // ═══════════════════════════════════════════════════════════════════════
-    console.log('5. COMPARAR DATOS SYSME vs SUPABASE\n');
+    console.log('7. COMPARAR DATOS SYSME vs SUPABASE\n');
 
     for (const producto of productos.slice(0, 3)) {
       const supabaseId = productMap.get(producto.id_complementog);
@@ -179,7 +204,7 @@ async function syncProducts() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 6. RESUMEN
+    // 8. RESUMEN
     // ═══════════════════════════════════════════════════════════════════════
     console.log('╔════════════════════════════════════════════════════════════╗');
     console.log('║           RESUMEN DE SINCRONIZACIÓN                        ║');
