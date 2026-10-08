@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 type Product = Database['public']['Tables']['products']['Row'];
 type StockState = 'ok' | 'low' | 'critical' | 'out';
 
-const getStorageImageUrl = (path: string | null | undefined): string | null => {
+export const getStorageImageUrl = (path: string | null | undefined): string | null => {
   if (!path || typeof path !== 'string') return null;
   if (path.startsWith('http')) return path;
   const { data } = supabase.storage.from('product-images').getPublicUrl(path);
