@@ -158,6 +158,12 @@ class BridgeContinuous {
       cycle.cursorBefore = cursor;
 
       try {
+        await this.syncCategories();
+      } catch (error) {
+        cycle.errors.push(`Categorías: ${(error as Error).message}`);
+      }
+
+      try {
         const productCount = await this.syncProducts();
         cycle.productsSynced = productCount;
       } catch (error) {
@@ -209,6 +215,97 @@ class BridgeContinuous {
       console.error(`[CICLO] Error fatal: ${(error as Error).message}`);
       cycle.errors.push(`Fatal: ${(error as Error).message}`);
       this.cycles.push(cycle);
+    }
+  }
+
+  private async syncCategories(): Promise<number> {
+    const conn = await this.pool!.getConnection();
+
+    try {
+      // Obtener todos los tipos de complementos únicos de Sysme
+      const [tipos] = await conn.query(`
+        SELECT DISTINCT
+          c.id_empresa, c.id_centro, c.id_tipo_comg,
+          t.tipo_comg as nombre,
+          t.sort_order,
+          COUNT(DISTINCT c.id_complementog) as cantidad_productos
+        FROM complementog c
+        LEFT JOIN tipo_comg t ON
+          c.id_tipo_comg = t.id_tipo_comg
+        WHERE c.id_empresa IS NOT NULL
+        GROUP BY c.id_empresa, c.id_centro, c.id_tipo_comg, t.tipo_comg, t.sort_order
+        ORDER BY c.id_tipo_comg
+      `);
+
+      let createdCount = 0;
+
+      for (const tipo of tipos as any[]) {
+        const compositeKey = `${tipo.id_empresa}|${tipo.id_centro}|${tipo.id_tipo_comg}`;
+
+        try {
+          // Verificar si el mapping ya existe
+          const { data: existingMapping } = await this.supabase
+            .from('tipo_comg_categories')
+            .select('category_id')
+            .eq('id_empresa', tipo.id_empresa)
+            .eq('id_centro', tipo.id_centro)
+            .eq('id_tipo_comg', tipo.id_tipo_comg)
+            .single();
+
+          if (existingMapping) {
+            // Mapping ya existe, no hacer nada
+            console.log(`[CATEGORY_SYNC] ${compositeKey}: mapping exists, reusing category_id`);
+          } else {
+            // Crear nueva categoría
+            const { data: newCategory, error: createCatError } = await this.supabase
+              .from('categories')
+              .insert({
+                name: tipo.nombre || `Tipo ${tipo.id_tipo_comg}`,
+                description: `Sysme id_tipo_comg: ${tipo.id_tipo_comg}`,
+                active: true,
+              })
+              .select()
+              .single();
+
+            if (createCatError || !newCategory) {
+              console.log(`[CATEGORY_CREATE_ERROR] ${compositeKey}: ${createCatError?.message}`);
+              continue;
+            }
+
+            // Crear mapping
+            const { error: mapError } = await this.supabase
+              .from('tipo_comg_categories')
+              .insert({
+                id_empresa: tipo.id_empresa,
+                id_centro: tipo.id_centro,
+                id_tipo_comg: tipo.id_tipo_comg,
+                category_id: newCategory.id,
+              });
+
+            if (mapError) {
+              console.log(`[CATEGORY_MAPPING_CREATE_ERROR] ${compositeKey}: ${mapError.message}`);
+              // Intentar eliminar la categoría creada
+              await this.supabase
+                .from('categories')
+                .delete()
+                .eq('id', newCategory.id);
+              continue;
+            }
+
+            createdCount++;
+            console.log(`[CATEGORY_CREATED] ${compositeKey} → ${newCategory.id}`);
+          }
+        } catch (error) {
+          console.log(`[CATEGORY_SYNC_ERROR] ${compositeKey}: ${(error as Error).message}`);
+        }
+      }
+
+      return createdCount;
+    } catch (error) {
+      console.log(`[CATEGORIES_SYNC_FATAL] ${(error as Error).message}`);
+      return 0;
+    } finally {
+      conn.release();
     }
   }
 
@@ -573,6 +670,35 @@ class BridgeContinuous {
             console.log(
               `[PRODUCT_CREATED] ${mapKey} → ${newProduct.id}`
             );
+
+            // Crear notificaciones para usuarios con products_enabled = true
+            try {
+              const { data: usersWithNotifications } = await this.supabase
+                .from('notification_preferences')
+                .select('user_id')
+                .eq('products_enabled', true);
+
+              if (usersWithNotifications && usersWithNotifications.length > 0) {
+                const notificationsToCreate = usersWithNotifications.map((pref: any) => ({
+                  user_id: pref.user_id,
+                  title: `Nuevo producto: ${producto.complementog}`,
+                  content: `Se ha sincronizado un nuevo producto desde Sysme`,
+                  type: 'product',
+                }));
+
+                const { error: notificationError } = await this.supabase
+                  .from('notifications')
+                  .insert(notificationsToCreate);
+
+                if (notificationError) {
+                  console.log(`[NOTIFICATION_CREATE_ERROR] ${mapKey}: ${notificationError.message}`);
+                } else {
+                  console.log(`[NOTIFICATIONS_CREATED] ${mapKey}: ${usersWithNotifications.length} users notified`);
+                }
+              }
+            } catch (notificationException) {
+              console.log(`[NOTIFICATION_CREATE_EXCEPTION] ${mapKey}: ${(notificationException as Error).message}`);
+            }
           } catch (error) {
             console.log(
               `[PRODUCT_CREATE_EXCEPTION] ${mapKey}: ${(error as Error).message}`

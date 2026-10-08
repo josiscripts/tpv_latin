@@ -35,5 +35,18 @@ export function validateConfig(): string[] {
     errors.push('SYSME_PASSWORD is required (read from C:\\SYSME\\SGC\\sysmetpv.ini or set SYSME_PASSWORD env var)');
   }
 
+  // BRIDGE LAB PROTECTION: Fail fast if connecting to production from LAB
+  const isProductionUrl = config.supabase.url && config.supabase.url.includes('.supabase.co');
+  const isLocalUrl = config.supabase.url === 'http://127.0.0.1:54321' || config.supabase.url === 'http://localhost:54321';
+
+  if (isProductionUrl && !isLocalUrl) {
+    errors.push(
+      `[SECURITY] Cannot connect to production Supabase from Bridge LAB environment.\n` +
+      `SUPABASE_URL must be http://127.0.0.1:54321 (LOCAL) or http://localhost:54321.\n` +
+      `Current URL: ${config.supabase.url}\n` +
+      `This is a safety mechanism to prevent accidental data modifications in production.`
+    );
+  }
+
   return errors;
 }

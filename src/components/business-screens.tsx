@@ -132,10 +132,10 @@ export function CategoriesScreen() {
         {productsByCategory.map((cat) => (
           <div key={cat.id} className="group rounded-lg border bg-card overflow-hidden transition-all hover:shadow-md cursor-pointer">
             {cat.image_url ? (
-              <img src={cat.image_url} alt={cat.name} className="w-full h-32 object-cover" />
+              <img src={cat.image_url} alt={cat.name} className="w-full aspect-square object-cover" />
             ) : (
               <div
-                className="w-full h-32 flex items-center justify-center"
+                className="w-full aspect-square flex items-center justify-center"
                 style={{ backgroundColor: cat.color || '#3b82f6' }}
               >
                 <PackagePlus size={28} className="text-white opacity-40" />

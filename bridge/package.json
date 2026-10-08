@@ -20,5 +20,8 @@
     "ts-node": "^10.9.2",
     "typescript": "^7.0.2",
     "xtea": "^1.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
   }
 }

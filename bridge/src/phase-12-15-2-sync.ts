@@ -181,7 +181,13 @@ async function syncSale() {
       sysme_id_venta: TEST_SALE_ID,
       sysme_serie: '001',
       sysme_id_tiquet: TEST_SALE_ID,
-      sale_date: new Date().toISOString().split('T')[0],
+      sale_date: (() => {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      })(),
       subtotal: totalSale,
       tax: taxTotal,
       total: totalSale + taxTotal,

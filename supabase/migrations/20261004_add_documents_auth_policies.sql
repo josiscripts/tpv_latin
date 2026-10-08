@@ -9,7 +9,12 @@
 ALTER TABLE documents ADD COLUMN uploaded_by_user_id UUID;
 
 -- Migrate data: set to user who created the document (for now, null for anon uploads)
-UPDATE documents SET uploaded_by_user_id = NULL WHERE uploaded_by = 'anon';
+-- Note: This handles the case where uploaded_by might have been 'anon' or similar
+-- Since we're creating a new UUID column, just leave it null for existing records
+
+-- Drop policies that reference uploaded_by before dropping the column
+DROP POLICY IF EXISTS "documents_insert_authenticated" ON documents;
+DROP POLICY IF EXISTS "documents_select_authenticated" ON documents;
 
 -- Drop old column and rename new one
 ALTER TABLE documents DROP COLUMN uploaded_by;
@@ -33,6 +38,11 @@ CREATE INDEX idx_documents_uploaded_by_user_id ON documents(uploaded_by);
 DROP POLICY IF EXISTS documents_deny_all ON documents;
 
 -- RLS: Authenticated users can SELECT, INSERT, UPDATE, DELETE documents
+DROP POLICY IF EXISTS documents_select_authenticated ON documents;
+DROP POLICY IF EXISTS documents_insert_authenticated ON documents;
+DROP POLICY IF EXISTS documents_update_authenticated ON documents;
+DROP POLICY IF EXISTS documents_delete_authenticated ON documents;
+
 CREATE POLICY documents_select_authenticated
 ON documents
 FOR SELECT
@@ -41,7 +51,7 @@ USING (auth.role() = 'authenticated');
 CREATE POLICY documents_insert_authenticated
 ON documents
 FOR INSERT
-WITH CHECK (auth.role() = 'authenticated' AND uploaded_by = auth.uid());
+WITH CHECK (auth.role() = 'authenticated' AND uploaded_by IS NULL);
 
 CREATE POLICY documents_update_authenticated
 ON documents

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useProducts } from "@/hooks/useProducts";
 import { useCreateSale } from "@/hooks/useSales";
+import { useAuthContext } from "./auth-provider";
 import { ProductImage, money } from "./pos-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +14,8 @@ export function PosScreen() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [query, setQuery] = useState("");
   const { data: products = [] } = useProducts();
-  const createSale = useCreateSale();
+  const { profile } = useAuthContext();
+  const createSale = useCreateSale(profile?.id);
   const [isProcessing, setIsProcessing] = useState(false);
 
   const change = (id: string, delta: number) =>
