@@ -1,8 +1,9 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { Bell, Boxes, ChartNoAxesCombined, ChevronLeft, CircleDollarSign, ClipboardList, FileText, LayoutDashboard, LogOut, Menu, Moon, Package, Search, Settings, ShoppingBasket, ShoppingCart, Store, Sun, Tags, Truck, UsersRound } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { usePos } from "./pos-context";
 import { useAuthContext } from "./auth-provider";
+import { businessService } from "@/services/business.service";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,12 +14,13 @@ const nav=[
 ] as const;
 
 export function AppShell({children}:{children:ReactNode}){
- const {language,setLanguage,dark,setDark,t}=usePos(); const path=useRouterState({select:s=>s.location.pathname}); const [collapsed,setCollapsed]=useState(false); const {logout,profile}=useAuthContext(); const navigate=useNavigate(); const handleLogout=async()=>{await logout();navigate({to:'/login'});};
+ const {language,setLanguage,dark,setDark,t,business,setBusiness}=usePos(); const path=useRouterState({select:s=>s.location.pathname}); const [collapsed,setCollapsed]=useState(false); const {logout,profile}=useAuthContext(); const navigate=useNavigate(); const handleLogout=async()=>{await logout();navigate({to:'/login'})};
+ useEffect(()=>{businessService.getDefault().then(b=>setBusiness(b)).catch(e=>console.error('Failed to load business',e))},[setBusiness]);
  return <TooltipProvider><div className="flex h-dvh min-w-[1024px] overflow-hidden bg-background text-foreground">
   <aside className={`${collapsed?"w-[76px]":"w-[250px]"} flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200`}>
    <div className="flex h-[72px] items-center gap-3 border-b border-sidebar-border px-5">
-    <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground shadow-sm"><Store size={21}/></div>
-    {!collapsed&&<div className="min-w-0"><div className="truncate text-[15px] font-bold">Mercado Central</div><div className="text-[11px] text-muted-foreground">TPV PRO</div></div>}
+    <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground shadow-sm">{business?.logo_url?<img src={business.logo_url} alt="Logo" className="size-10 rounded-lg object-cover"/>:<Store size={21}/>}</div>
+    {!collapsed&&<div className="min-w-0"><div className="truncate text-[15px] font-bold">{business?.name || 'Mercado Central'}</div><div className="text-[11px] text-muted-foreground">TPV PRO</div></div>}
    </div>
    <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-5" aria-label="Navegación principal">
     {nav.map(item=>{const active=path===item.to; const Icon=item.icon; return <Tooltip key={item.to}><TooltipTrigger asChild><Link to={item.to} className={`flex h-10 items-center gap-3 rounded-md px-3 text-[13px] font-medium transition-colors ${active?"bg-primary/12 text-primary":"text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"}`}><Icon size={18} strokeWidth={active?2.4:1.8}/>{!collapsed&&<span>{t(item.key)}</span>}{active&&!collapsed&&<span className="ml-auto size-1.5 rounded-full bg-primary"/>}</Link></TooltipTrigger>{collapsed&&<TooltipContent side="right">{t(item.key)}</TooltipContent>}</Tooltip>})}

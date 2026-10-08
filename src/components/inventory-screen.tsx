@@ -1,4 +1,4 @@
-import { Boxes, CircleDollarSign, Plus, SlidersHorizontal } from "lucide-react";
+import { Boxes, CircleDollarSign, Plus, SlidersHorizontal, TrendingUp, Percent } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "./app-shell";
@@ -128,11 +128,17 @@ export function InventoryScreen() {
 
   const totalStock = products.reduce((sum, p) => sum + Number(p.stock), 0);
   const inventoryValue = products.reduce((sum, p) => sum + Number(p.stock) * Number(p.cost_price), 0);
+  const saleValue = products.reduce((sum, p) => sum + Number(p.stock) * Number(p.sale_price), 0);
+  const profitTotal = saleValue - inventoryValue;
+  const marginPercent = inventoryValue > 0 ? ((profitTotal / inventoryValue) * 100) : 0;
   const criticalCount = products.filter((p) => Number(p.stock) <= Number(p.min_stock)).length;
 
   const stats = [
     { l: "Stock total", v: `${totalStock.toFixed(0)} uds.`, i: Boxes },
     { l: "Valor del inventario", v: money(inventoryValue), i: CircleDollarSign },
+    { l: "Valor de venta", v: money(saleValue), i: TrendingUp },
+    { l: "Beneficio", v: money(profitTotal), i: CircleDollarSign },
+    { l: "Margen %", v: `${marginPercent.toFixed(2)}%`, i: Percent },
     { l: "Productos críticos", v: criticalCount.toString(), i: Boxes },
   ];
 
@@ -149,7 +155,7 @@ export function InventoryScreen() {
           <TabsTrigger value="moves">{t("movements")}</TabsTrigger>
         </TabsList>
         <TabsContent value="inventory" className="mt-4">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-4">
             {stats.map((x) => (
               <div key={x.l} className="flex items-center gap-4 rounded-lg border bg-card p-4">
                 <div className="grid size-10 place-items-center rounded-md bg-primary/10 text-primary">
