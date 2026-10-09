@@ -156,7 +156,7 @@ export function SuppliersScreen() {
               onClick={() => setSelectedSupplierId(sup.id)}
               className="rounded-lg border bg-card p-5 text-left hover:shadow-md hover:border-foreground transition-all"
             >
-              <div className="w-12 h-12 bg-gray-100 rounded border border-gray-300 flex items-center justify-center overflow-hidden mb-3">
+              <div className="w-14 h-14 bg-gray-100 rounded border border-gray-300 flex items-center justify-center overflow-hidden mb-3">
                 {(sup as any).logo_url_signed ? (
                   <img
                     src={(sup as any).logo_url_signed}
@@ -164,7 +164,7 @@ export function SuppliersScreen() {
                     className="w-full h-full object-contain"
                   />
                 ) : (
-                  <div className={`w-full h-full grid place-items-center ${colors[i % colors.length]} text-white text-xs font-bold`}>
+                  <div className={`w-full h-full grid place-items-center ${colors[i % colors.length]} text-white text-sm font-bold`}>
                     {sup.name.substring(0, 2).toUpperCase()}
                   </div>
                 )}

@@ -185,8 +185,8 @@ export function SupplierDetail({ supplierId, onBack }: { supplierId: string; onB
             <Label>Logo del proveedor</Label>
             {isEditing ? (
               <div className="mt-3 space-y-3">
-                {/* Logo Preview */}
-                <div className="w-32 h-32 bg-gray-100 rounded border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden">
+                {/* Logo Preview - 112px (7rem) */}
+                <div className="w-28 h-28 bg-gray-100 rounded border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden">
                   {logoPreview ? (
                     <img
                       src={logoPreview}
@@ -217,7 +217,7 @@ export function SupplierDetail({ supplierId, onBack }: { supplierId: string; onB
                 </div>
               </div>
             ) : (
-              <div className="mt-3 w-32 h-32 bg-gray-100 rounded border border-gray-300 flex items-center justify-center overflow-hidden">
+              <div className="mt-3 w-28 h-28 bg-gray-100 rounded border border-gray-300 flex items-center justify-center overflow-hidden">
                 {logoPreview || (supplier as any).logo_url_signed ? (
                   <img
                     src={logoPreview || (supplier as any).logo_url_signed}
