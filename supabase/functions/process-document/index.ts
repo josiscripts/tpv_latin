@@ -118,26 +118,54 @@ interface DocumentExtraction {
   processing_time_ms: number;
 }
 
-// Extrae JSON válido de una respuesta que puede contener Markdown
+// Extrae JSON válido de una respuesta que puede contener Markdown (Robusto)
 function extractJsonFromResponse(responseText: string): any {
   const text = responseText.trim();
+  const attempts: string[] = [];
 
-  // Caso 1: JSON válido sin Markdown
-  if (text.startsWith('{')) {
-    return JSON.parse(text);
-  }
-
-  // Caso 2: JSON dentro de un bloque ```json...```
-  const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-  if (jsonMatch && jsonMatch[1]) {
-    const extracted = jsonMatch[1].trim();
-    if (extracted.startsWith('{')) {
-      return JSON.parse(extracted);
+  // Caso 1: JSON válido sin Markdown (más común)
+  try {
+    if (text.startsWith('{')) {
+      const parsed = JSON.parse(text);
+      return parsed;
     }
+  } catch (e) {
+    attempts.push(`Direct parse: ${e instanceof Error ? e.message : 'Unknown error'}`);
   }
 
-  // Caso 3: No se encontró JSON válido
-  throw new Error('No valid JSON found in response (expected JSON or ```json...``` block)');
+  // Caso 2: JSON dentro de un bloque ```json...``` o ````
+  try {
+    const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (jsonMatch && jsonMatch[1]) {
+      const extracted = jsonMatch[1].trim();
+      if (extracted.startsWith('{')) {
+        const parsed = JSON.parse(extracted);
+        return parsed;
+      }
+    }
+  } catch (e) {
+    attempts.push(`Markdown parse: ${e instanceof Error ? e.message : 'Unknown error'}`);
+  }
+
+  // Caso 3: Buscar primer { y último } como fallback
+  try {
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start !== -1 && end > start) {
+      const jsonStr = text.substring(start, end + 1);
+      const parsed = JSON.parse(jsonStr);
+      return parsed;
+    }
+  } catch (e) {
+    attempts.push(`Bracket extraction: ${e instanceof Error ? e.message : 'Unknown error'}`);
+  }
+
+  // Caso 4: No se encontró JSON válido
+  const preview = text.length > 200 ? text.substring(0, 200) + '...' : text;
+  throw new Error(
+    `No valid JSON found in response. Response length: ${text.length}. ` +
+    `Attempts: [${attempts.join('; ')}]. Response: ${preview}`
+  );
 }
 
 // Valida que el objeto parseado cumple el esquema DocumentExtraction
@@ -380,6 +408,7 @@ Return ONLY valid JSON, no markdown or extra text:
 
 async function processDocument(req: Request): Promise<Response> {
   let documentId: string | undefined;
+  let processingLeaseToken: string | null = null; // Persistent ownership token
 
   let claimedSuccessfully = false; // Track if THIS request successfully claimed the document
 
@@ -469,35 +498,30 @@ async function processDocument(req: Request): Promise<Response> {
       );
     }
 
-    // 4. Mark as processing (atomic: only if in uploadable state)
-    // Prevent concurrent requests from processing the same document
-    const { data: claimedDocument, error: claimError } = await supabase
-      .from('documents')
-      .update({
-        processing_status: 'processing',
-        processing_error: null,
-      })
-      .eq('id', documentId)
-      .in('processing_status', ['uploaded', 'error'])  // Only from these states
-      .select('id')
-      .single();
+    // 4. Claim document with persistent lease token
+    // RPC ensures only one worker owns this document at any time
+    const { data: leaseToken, error: claimError } = await supabase
+      .rpc('claim_document_for_processing', {
+        p_document_id: documentId,
+        p_lease_duration: '5 minutes'
+      });
 
-    if (claimError || !claimedDocument) {
-      // Document could not be claimed (another request has it, or in non-retryable state)
-      console.log(`[B8:concurrency] Doc ${documentId}: Could not claim document. Status: ${document.processing_status}`);
+    if (claimError || !leaseToken) {
+      // Document could not be claimed (another worker has it, or in non-retryable state)
+      console.log(`[B8:concurrency] Doc ${documentId}: Could not claim document (409)`);
       return new Response(
         JSON.stringify({
-          error: `Document is already being processed or cannot be processed from current state (${document.processing_status})`,
+          error: 'Document is already being processed or in non-retryable state',
           status: 'conflict',
-          document_status: document.processing_status,
         }),
         { status: 409, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    // Mark that THIS request successfully claimed the document
+    // Store lease token for this processing attempt (persistent ownership)
+    processingLeaseToken = leaseToken;
     claimedSuccessfully = true;
-    console.log(`[B8:concurrency] Doc ${documentId}: Document claimed successfully by this request`);
+    console.log(`[B8:concurrency] Doc ${documentId}: Claimed with token ${processingLeaseToken} (expires in 5 minutes)`);
 
     // 5. Download file from Storage (using signed URL)
     console.log(`[B8:storage] Doc ${documentId}: Creating signed URL for ${document.file_path}`);
@@ -659,9 +683,30 @@ async function processDocument(req: Request): Promise<Response> {
       ],
     });
 
-    // 9. Parse IA response
-    const responseText =
-      response.content[0].type === 'text' ? response.content[0].text : '';
+    // 9. Parse IA response with validation (handle thinking blocks)
+    if (!response.content || response.content.length === 0) {
+      throw new Error('Claude returned empty response (no content blocks)');
+    }
+
+    // Handle Claude's extended thinking: find the text block (skip thinking blocks)
+    const textBlock = (response.content as Array<any>).find((c: any) => c.type === 'text');
+
+    if (!textBlock) {
+      const contentTypes = (response.content as Array<any>).map(c => c.type).join(', ');
+      throw new Error(
+        `Claude returned no text block. Content types: ${contentTypes}. ` +
+        `Response structure: ${JSON.stringify((response.content as Array<any>).map(c => ({ type: c.type })))}`
+      );
+    }
+
+    const responseText = textBlock.text || '';
+
+    if (!responseText || responseText.trim().length === 0) {
+      throw new Error(
+        `Claude returned empty text block. Check max_tokens (${4096}) or token limit. ` +
+        `Response stop_reason: ${(response as any).stop_reason}`
+      );
+    }
 
     let extractedData: DocumentExtraction;
     try {
@@ -673,72 +718,58 @@ async function processDocument(req: Request): Promise<Response> {
       };
       extractedData = validateExtraction(enrichedParsed);
     } catch (parseError) {
-      throw new Error(`Failed to parse IA response: ${parseError}`);
+      throw new Error(
+        `Failed to parse IA response: ${parseError instanceof Error ? parseError.message : String(parseError)}`
+      );
     }
 
-    // 10. Determine next attempt number
-    const { data: existingAttempts, error: attemptsError } = await supabase
-      .from('document_extractions')
-      .select('attempt_number')
-      .eq('document_id', documentId)
-      .order('attempt_number', { ascending: false })
-      .limit(1);
+    // 10. Persist extraction with ownership validation (RPC ensures lease is valid)
+    const { data: extractionId, error: persistError } = await supabase
+      .rpc('persist_extraction_with_ownership', {
+        p_document_id: documentId,
+        p_lease_token: processingLeaseToken,
+        p_extraction_data: JSON.stringify({
+          document_type_detected: extractedData.document_type,
+          vendor_name: extractedData.extraction.vendor.name,
+          vendor_tax_id: extractedData.extraction.vendor.tax_id,
+          vendor_address: extractedData.extraction.vendor.address,
+          invoice_number: extractedData.extraction.invoice.number,
+          invoice_date: extractedData.extraction.invoice.date,
+          due_date: extractedData.extraction.invoice.due_date,
+          currency: extractedData.extraction.totals.currency,
+          subtotal: extractedData.extraction.totals.subtotal,
+          tax_total: extractedData.extraction.totals.tax,
+          tax_rate: extractedData.extraction.totals.tax_rate,
+          total: extractedData.extraction.totals.total,
+          lines_extracted: extractedData.extraction.lines,
+          raw_text_extracted: null,
+          raw_response: extractedData,
+          confidence_score: extractedData.confidence.overall,
+          extracted_at: new Date().toISOString(),
+          extraction_model: aiModelId
+        }),
+        p_extraction_model: aiModelId
+      });
 
-    let nextAttemptNumber = 1;
-    if (!attemptsError && existingAttempts && existingAttempts.length > 0) {
-      nextAttemptNumber = (existingAttempts[0].attempt_number || 0) + 1;
+    if (persistError || !extractionId) {
+      throw new Error(`Failed to persist extraction with ownership check: ${persistError?.message || 'Unknown error'}`);
     }
 
-    // 11. Store extraction in database
-    const { data: extraction, error: insertError } = await supabase
-      .from('document_extractions')
-      .insert({
-        document_id: documentId,
-        extraction_model: aiModelId,
-        extracted_at: new Date().toISOString(),
-        document_type_detected: extractedData.document_type,
-        vendor_name: extractedData.extraction.vendor.name,
-        vendor_tax_id: extractedData.extraction.vendor.tax_id,
-        vendor_address: extractedData.extraction.vendor.address,
-        invoice_number: extractedData.extraction.invoice.number,
-        invoice_date: extractedData.extraction.invoice.date,
-        due_date: extractedData.extraction.invoice.due_date,
-        currency: extractedData.extraction.totals.currency,
-        subtotal: extractedData.extraction.totals.subtotal,
-        tax_total: extractedData.extraction.totals.tax,
-        tax_rate: extractedData.extraction.totals.tax_rate,
-        total: extractedData.extraction.totals.total,
-        lines_extracted: extractedData.extraction.lines,
-        raw_text_extracted: null, // Could store OCR text if available
-        raw_response: extractedData,
-        confidence_score: extractedData.confidence.overall,
-        confidence_supplier: extractedData.confidence.supplier,
-        confidence_invoice: extractedData.confidence.invoice_number,
-        confidence_lines: extractedData.confidence.lines,
-        processing_state: 'extracted',
-        attempt_number: nextAttemptNumber,
-      })
-      .select()
-      .single();
+    console.log(`[B8:extraction] Doc ${documentId}: Extraction persisted with ID ${extractionId} under lease ownership`);
 
-    if (insertError) {
-      throw new Error(`Failed to store extraction: ${insertError.message}`);
+    // 11. Finalize document as processed (RPC validates lease ownership)
+    const { data: finalizeSuccess, error: finalizeError } = await supabase
+      .rpc('finalize_document_as_processed', {
+        p_document_id: documentId,
+        p_lease_token: processingLeaseToken,
+        p_document_date: extractedData.extraction.invoice.date || null
+      });
+
+    if (finalizeError || !finalizeSuccess) {
+      throw new Error(`Failed to finalize document: lost lease ownership or DB error`);
     }
 
-    // 12. Update document status to processed (verify still in processing to catch state changes)
-    const { error: updateError } = await supabase
-      .from('documents')
-      .update({
-        processing_status: 'processed',
-        processing_error: null,
-        document_date: extractedData.extraction.invoice.date || null,
-      })
-      .eq('id', documentId)
-      .eq('processing_status', 'processing');  // Only update if still in processing state (B.19)
-
-    if (updateError) {
-      throw new Error(`Failed to update document status: ${updateError.message}`);
-    }
+    console.log(`[B8:finalize] Doc ${documentId}: Finalized as processed under valid lease`);
 
     const processingTimeMs = Date.now() - startTime;
 
@@ -746,7 +777,7 @@ async function processDocument(req: Request): Promise<Response> {
     return new Response(
       JSON.stringify({
         success: true,
-        extraction_id: extraction?.id,
+        extraction_id: extractionId,
         document_id: documentId,
         status: 'processed',
         confidence: extractedData.confidence.overall,
@@ -770,18 +801,21 @@ async function processDocument(req: Request): Promise<Response> {
       );
 
       try {
-        await supabase
-          .from('documents')
-          .update({
-            processing_status: 'error',
-            processing_error: error instanceof Error ? error.message : String(error),
-          })
-          .eq('id', documentId)
-          .eq('processing_status', 'processing');  // Only update if still in processing (B.19)
-        console.error(`[B8:error] Doc ${documentId}: Marked as error after processing failure`, error instanceof Error ? error.message : String(error));
-      } catch {
+        const { data: errorSuccess, error: errorUpdateError } = await supabase
+          .rpc('mark_document_as_error', {
+            p_document_id: documentId,
+            p_lease_token: processingLeaseToken,
+            p_error_message: error instanceof Error ? error.message : String(error)
+          });
+
+        if (errorUpdateError || !errorSuccess) {
+          console.error(`[B8:error] Doc ${documentId}: Lost lease ownership before marking error`);
+        } else {
+          console.error(`[B8:error] Doc ${documentId}: Marked as error under valid lease`);
+        }
+      } catch (errorRpcError) {
         /* Silent fail on error update */
-        console.error(`[B8:error] Doc ${documentId}: Failed to update error status`);
+        console.error(`[B8:error] Doc ${documentId}: Failed to mark document as error`, errorRpcError instanceof Error ? errorRpcError.message : String(errorRpcError));
       }
     } else if (documentId && !claimedSuccessfully) {
       console.error(`[B8:error] Doc ${documentId}: Error occurred before successful claim (${error instanceof Error ? error.message : String(error)})`);
