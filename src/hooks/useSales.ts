@@ -37,12 +37,12 @@ export function useDailySales(date?: Date) {
   });
 }
 
-export function useCreateSale() {
+export function useCreateSale(userId?: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: ({ sale, cart }: { sale: Omit<SaleInsert, 'source'> & { source: 'latin_pos' | 'sysme' }; cart: CartItem[] }) =>
-      salesService.createSale(sale, cart),
+      salesService.createSale(sale, cart, userId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SALES_KEY });
     },

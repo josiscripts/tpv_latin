@@ -73,7 +73,10 @@ export const categoriesService = {
 
     const { error: uploadError } = await supabase.storage
       .from('category-images')
-      .upload(filePath, file);
+      .upload(filePath, file, {
+        contentType: file.type || "image/jpeg",
+        upsert: false,
+      });
 
     if (uploadError) throw uploadError;
 

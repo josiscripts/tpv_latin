@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/lib/database.types';
 import { stockService } from './stock.service';
+import { notificationsService } from './notifications.service';
 
 type SaleInsert = Database['public']['Tables']['sales']['Insert'];
 type SaleLineInsert = Database['public']['Tables']['sale_lines']['Insert'];
@@ -49,7 +50,8 @@ export const salesService = {
 
   async createSale(
     sale: Omit<SaleInsert, 'source'> & { source: 'latin_pos' | 'sysme' },
-    cartItems: CartItem[]
+    cartItems: CartItem[],
+    userId?: string
   ) {
     // Crear cabecera de venta
     const { data: saleData, error: saleError } = await supabase
@@ -129,6 +131,25 @@ export const salesService = {
           .from('products')
           .update({ stock: newStock })
           .eq('id', item.productId);
+      }
+    }
+
+    // Crear notificación si sales_enabled y userId disponible
+    if (userId) {
+      try {
+        const prefs = await notificationsService.getPreferences(userId);
+        if (prefs?.sales_enabled) {
+          const totalFormatted = Number(sale.total || 0).toFixed(2);
+          await notificationsService.createNotification({
+            user_id: userId,
+            sale_id: saleData.id,
+            title: `Nueva venta registrada`,
+            content: `Se ha registrado una venta por ${totalFormatted}€`,
+            type: 'sale',
+          });
+        }
+      } catch (notificationError) {
+        console.error('Error creating sale notification:', notificationError);
       }
     }
 

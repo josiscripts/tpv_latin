@@ -1,11 +1,11 @@
-import { Boxes, CircleDollarSign, Plus, SlidersHorizontal, TrendingUp, Percent } from "lucide-react";
+import { Boxes, CircleDollarSign, SlidersHorizontal, TrendingUp, Percent } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "./app-shell";
-import { StockBadge, money } from "./pos-ui";
+import { StockBadge, money, ProductImage } from "./pos-ui";
 import { usePos } from "./pos-context";
 import { useProducts } from "@/hooks/useProducts";
-import { useStockMovements, useCreateAdjustment } from "@/hooks/useStock";
+import { useCreateAdjustment } from "@/hooks/useStock";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -108,7 +108,6 @@ export function InventoryScreen() {
   const { t } = usePos();
   const [filter, setFilter] = useState("all");
   const { data: products = [] } = useProducts();
-  const { data: movements = [] } = useStockMovements();
 
   const visible = filter === "all"
     ? products
@@ -138,7 +137,7 @@ export function InventoryScreen() {
     { l: "Valor del inventario", v: money(inventoryValue), i: CircleDollarSign },
     { l: "Valor de venta", v: money(saleValue), i: TrendingUp },
     { l: "Beneficio", v: money(profitTotal), i: CircleDollarSign },
-    { l: "Margen %", v: `${marginPercent.toFixed(2)}%`, i: Percent },
+    { l: "Margen", v: `${marginPercent.toFixed(1)}%`, i: Percent },
     { l: "Productos críticos", v: criticalCount.toString(), i: Boxes },
   ];
 
@@ -152,18 +151,17 @@ export function InventoryScreen() {
       <Tabs defaultValue="inventory">
         <TabsList>
           <TabsTrigger value="inventory">{t("inventory")}</TabsTrigger>
-          <TabsTrigger value="moves">{t("movements")}</TabsTrigger>
         </TabsList>
         <TabsContent value="inventory" className="mt-4">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-3">
             {stats.map((x) => (
-              <div key={x.l} className="flex items-center gap-4 rounded-lg border bg-card p-4">
-                <div className="grid size-10 place-items-center rounded-md bg-primary/10 text-primary">
-                  <x.i size={19} />
+              <div key={x.l} className="flex items-center gap-3 rounded-lg border bg-card p-3">
+                <div className="grid size-9 place-items-center rounded-md bg-primary/10 text-primary shrink-0">
+                  <x.i size={18} />
                 </div>
-                <div>
-                  <p className="text-[11px] text-muted-foreground">{x.l}</p>
-                  <p className="text-lg font-bold">{x.v}</p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] text-muted-foreground truncate">{x.l}</p>
+                  <p className="text-base font-bold truncate">{x.v}</p>
                 </div>
               </div>
             ))}
@@ -184,7 +182,7 @@ export function InventoryScreen() {
             <table className="w-full text-left text-xs">
               <thead className="border-b bg-muted/50 text-[10px] uppercase text-muted-foreground">
                 <tr>
-                  {["Producto", "Stock actual", "Stock mínimo", "Costo unitario", "Estado"].map((x) => (
+                  {["Imagen", "Producto", "Stock actual", "Stock mínimo", "Costo unitario", "Valor stock", "Estado"].map((x) => (
                     <th key={x} className="px-4 py-3">
                       {x}
                     </th>
@@ -195,6 +193,7 @@ export function InventoryScreen() {
                 {visible.map((p) => {
                   const stock = Number(p.stock);
                   const minStock = Number(p.min_stock);
+                  const stockValue = stock * Number(p.cost_price);
                   let state: "ok" | "low" | "critical" | "out" = "ok";
                   if (stock === 0) state = "out";
                   else if (stock <= minStock) state = "critical";
@@ -203,11 +202,15 @@ export function InventoryScreen() {
                   return (
                     <tr key={p.id} className="border-b last:border-0">
                       <td className="px-4 py-2">
+                        <ProductImage product={p as any} size="sm" />
+                      </td>
+                      <td className="px-4 py-2">
                         <b>{p.name}</b>
                       </td>
                       <td className="px-4 font-bold">{stock.toFixed(2)}</td>
                       <td className="px-4 text-muted-foreground">{minStock.toFixed(2)}</td>
                       <td className="px-4">{money(Number(p.cost_price))}</td>
+                      <td className="px-4 font-semibold">{money(stockValue)}</td>
                       <td className="px-4">
                         <StockBadge state={state} />
                       </td>
@@ -216,29 +219,6 @@ export function InventoryScreen() {
                 })}
               </tbody>
             </table>
-          </div>
-        </TabsContent>
-        <TabsContent value="moves" className="mt-5">
-          <div className="rounded-lg border bg-card p-6">
-            <h2 className="mb-6 text-sm font-semibold">Últimos movimientos</h2>
-            {movements.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Sin movimientos registrados</p>
-            ) : (
-              <div className="space-y-3">
-                {movements.slice(0, 20).map((m) => (
-                  <div key={m.id} className="flex justify-between border-b pb-2 text-xs last:border-0">
-                    <div>
-                      <p className="font-semibold">{m.movement_type}</p>
-                      <p className="text-muted-foreground">{m.reason || "Sin razón"}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold">{Number(m.quantity) > 0 ? "+" : ""}{m.quantity}</p>
-                      <p className="text-muted-foreground">{new Date(m.created_at).toLocaleString()}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </TabsContent>
       </Tabs>

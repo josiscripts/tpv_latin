@@ -12,15 +12,17 @@ interface SalesPayload {
   subtotal: number;
   tax: number;
   total: number;
+  payment_method: string;
   lineas: Array<{
     sysme_id_venta: string;
     sysme_id_linea: string;
     product_id: string;
-    cantidad: number;
-    PVPTiquet: number;
-    precio_compra: number;
-    total: number;
-    avgiva: number;
+    quantity: number;
+    unit_sale_price: number;
+    unit_cost_at_time: number | null;
+    tax_rate: number;
+    discount: number;
+    total_sale: number;
   }>;
 }
 
@@ -74,7 +76,7 @@ async function processSaleTransaction(supabase: any, payload: SalesPayload) {
           subtotal: payload.subtotal,
           tax: payload.tax,
           total: payload.total,
-          payment_method: "unknown",
+          payment_method: payload.payment_method,
         },
         { onConflict: "sysme_id_venta" }
       )
@@ -91,6 +93,8 @@ async function processSaleTransaction(supabase: any, payload: SalesPayload) {
     // - Si es reintento, borra líneas viejas
     // - Luego inserta nuevas (garantiza consistencia)
 
+    console.log(`[DEBUG] Procesando ${payload.lineas.length} líneas`);
+
     const { error: deleteError } = await supabase
       .from("sale_lines")
       .delete()
@@ -100,6 +104,7 @@ async function processSaleTransaction(supabase: any, payload: SalesPayload) {
 
     // Ahora insertar todas las líneas
     for (const linea of payload.lineas) {
+      console.log(`[DEBUG] Línea ${linea.sysme_id_linea}: product_id=${linea.product_id}, quantity=${linea.quantity}`);
       const { error: lineError } = await supabase
         .from("sale_lines")
         .insert({
@@ -107,12 +112,12 @@ async function processSaleTransaction(supabase: any, payload: SalesPayload) {
           product_id: linea.product_id,
           sysme_id_venta: linea.sysme_id_venta,
           sysme_id_linea: linea.sysme_id_linea,
-          quantity: linea.cantidad,
-          unit_sale_price: linea.PVPTiquet,
-          unit_cost_at_time: linea.precio_compra > 0 ? linea.precio_compra : null,
-          tax_rate: linea.avgiva,
-          discount: 0,
-          total_sale: linea.total,
+          quantity: linea.quantity,
+          unit_sale_price: linea.unit_sale_price,
+          unit_cost_at_time: linea.unit_cost_at_time,
+          tax_rate: linea.tax_rate,
+          discount: linea.discount,
+          total_sale: linea.total_sale,
         });
 
       if (lineError) throw lineError;
@@ -138,7 +143,7 @@ async function processSaleTransaction(supabase: any, payload: SalesPayload) {
         if (prodError) throw prodError;
 
         const currentStock = productData.stock || 0;
-        const newStock = currentStock - linea.cantidad;
+        const newStock = currentStock - linea.quantity;
 
         // Actualizar stock
         const { error: updateError } = await supabase
@@ -154,7 +159,7 @@ async function processSaleTransaction(supabase: any, payload: SalesPayload) {
           .insert({
             product_id: linea.product_id,
             movement_type: "sale",
-            quantity: -linea.cantidad,
+            quantity: -linea.quantity,
             previous_stock: currentStock,
             resulting_stock: newStock,
             reference_type: "sale",
@@ -167,7 +172,40 @@ async function processSaleTransaction(supabase: any, payload: SalesPayload) {
       }
     }
 
-    // 3. Actualizar cursor
+    // 3. Crear notificaciones para usuarios con sales_enabled=true
+    try {
+      const { data: usersWithNotifications, error: prefsError } = await supabase
+        .from("notification_preferences")
+        .select("user_id")
+        .eq("sales_enabled", true);
+
+      if (!prefsError && usersWithNotifications && usersWithNotifications.length > 0) {
+        const notificationsToCreate = usersWithNotifications.map((pref: any) => ({
+          user_id: pref.user_id,
+          sale_id: saleId,
+          type: "sale",
+          title: `Nueva venta: ${payload.sysme_id_venta}`,
+          content: `Venta de ${payload.total.toFixed(2)}€ sincronizada desde Sysme`,
+          read: false,
+        }));
+
+        const { error: notifError } = await supabase
+          .from("notifications")
+          .insert(notificationsToCreate);
+
+        if (notifError) {
+          console.warn(`[NOTIFICATION] Error creating notifications: ${notifError.message}`);
+          // No fallar la venta si falla la notificación
+        } else {
+          console.log(`[NOTIFICATION] Created ${usersWithNotifications.length} notifications for sale ${saleId}`);
+        }
+      }
+    } catch (notificationException) {
+      console.warn(`[NOTIFICATION] Exception creating notifications: ${(notificationException as Error).message}`);
+      // No fallar la venta si falla la notificación
+    }
+
+    // 4. Actualizar cursor
     const { error: cursorError } = await supabase
       .from("sync_state")
       .update({

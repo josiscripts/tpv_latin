@@ -129,6 +129,24 @@ file_size_limit = "50MiB"
 allowed_mime_types = ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "image/jpeg", "image/png"]
 objects_path = "./documents"
 
+[storage.buckets.category-images]
+public = true
+file_size_limit = "50MiB"
+allowed_mime_types = ["image/jpeg", "image/png", "image/webp"]
+objects_path = "./category-images"
+
+[storage.buckets.avatars]
+public = true
+file_size_limit = "10MiB"
+allowed_mime_types = ["image/jpeg", "image/png", "image/webp"]
+objects_path = "./avatars"
+
+[storage.buckets.logos]
+public = true
+file_size_limit = "5MiB"
+allowed_mime_types = ["image/jpeg", "image/png", "image/webp"]
+objects_path = "./logos"
+
 [storage.buckets.product-images]
 public = true
 file_size_limit = "50MiB"

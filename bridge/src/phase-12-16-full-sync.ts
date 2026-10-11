@@ -109,7 +109,13 @@ async function fullSync() {
           sysme_id_venta: String(ventaId),
           sysme_serie: venta.serie || 'A',
           sysme_id_tiquet: venta.id_tiquet || '0001',
-          sale_date: venta.fecha_venta || new Date().toISOString().split('T')[0],
+          sale_date: (() => {
+            const fechaObj = venta.fecha_venta ? new Date(venta.fecha_venta) : new Date();
+            const year = fechaObj.getFullYear();
+            const month = String(fechaObj.getMonth() + 1).padStart(2, '0');
+            const day = String(fechaObj.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+          })(),
           subtotal,
           tax,
           total,
