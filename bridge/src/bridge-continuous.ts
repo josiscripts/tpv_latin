@@ -11,7 +11,7 @@ interface SyncCycle {
   cursorAfter: number | null;
 }
 
-class BridgeContinuous {
+export class BridgeContinuous {
   private supabase: any;
   private pool: mysql.Pool | null = null;
   private isRunning = false;
