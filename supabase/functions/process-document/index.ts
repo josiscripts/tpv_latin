@@ -728,7 +728,7 @@ async function processDocument(req: Request): Promise<Response> {
       .rpc('persist_extraction_with_ownership', {
         p_document_id: documentId,
         p_lease_token: processingLeaseToken,
-        p_extraction_data: JSON.stringify({
+        p_extraction_data: {
           document_type_detected: extractedData.document_type,
           vendor_name: extractedData.extraction.vendor.name,
           vendor_tax_id: extractedData.extraction.vendor.tax_id,
@@ -747,7 +747,7 @@ async function processDocument(req: Request): Promise<Response> {
           confidence_score: extractedData.confidence.overall,
           extracted_at: new Date().toISOString(),
           extraction_model: aiModelId
-        }),
+        },
         p_extraction_model: aiModelId
       });
 
