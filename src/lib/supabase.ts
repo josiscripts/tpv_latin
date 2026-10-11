@@ -12,16 +12,19 @@ if (!supabaseAnonKey) {
   throw new Error('VITE_SUPABASE_ANON_KEY is not defined in environment variables');
 }
 
-// LAB PROTECTION: Fail fast if connecting to production from LAB environment
-const isProductionUrl = supabaseUrl && supabaseUrl.includes('.supabase.co');
+// ENVIRONMENT PROTECTION: Validate Supabase connection
 const isLocalUrl = supabaseUrl === 'http://127.0.0.1:54321' || supabaseUrl === 'http://localhost:54321';
+const isProdUrl = supabaseUrl === 'https://nqqdflyuzfvsctajvxgn.supabase.co';
+const isValidUrl = isLocalUrl || isProdUrl;
 
-if (isProductionUrl && !isLocalUrl) {
+if (!isValidUrl) {
   throw new Error(
-    `[SECURITY] Cannot connect to production Supabase from LAB environment.\n` +
-    `VITE_SUPABASE_URL must be http://127.0.0.1:54321 (LOCAL) or http://localhost:54321.\n` +
+    `[SECURITY] Invalid Supabase URL.\n` +
+    `Allowed URLs:\n` +
+    `- LOCAL: http://127.0.0.1:54321 (LAB environment)\n` +
+    `- PROD: https://nqqdflyuzfvsctajvxgn.supabase.co (lymarket production)\n` +
     `Current URL: ${supabaseUrl}\n` +
-    `This is a safety mechanism to prevent accidental changes to production data.`
+    `This is a safety mechanism to prevent accidental misconfiguration.`
   );
 }
 
