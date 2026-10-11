@@ -107,6 +107,18 @@ export function useRenameDocument() {
   });
 }
 
+export function useUpdateDocument() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ docId, updates }: { docId: string; updates: { original_name?: string; document_type?: string } }) =>
+      documentsService.updateDocument(docId, updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: DOCUMENTS_KEY });
+    },
+  });
+}
+
 export function useDeleteDocument() {
   const queryClient = useQueryClient();
 
@@ -115,5 +127,70 @@ export function useDeleteDocument() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: DOCUMENTS_KEY });
     },
+  });
+}
+
+export function useProcessDocument() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ docId, aiModelId }: { docId: string; aiModelId: string }) =>
+      documentsService.processDocument(docId, aiModelId),
+    onSuccess: (_, { docId }) => {
+      // Invalidate the specific document and overall documents list
+      queryClient.invalidateQueries({ queryKey: DOCUMENTS_KEY });
+      queryClient.invalidateQueries({ queryKey: [...DOCUMENTS_KEY, 'id', docId] });
+    },
+  });
+}
+
+export function useProcessDocumentWithIntegration() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ docId, aiModelId }: { docId: string; aiModelId: string }) => {
+      // Import here to avoid circular dependency
+      const { documentsWorkflowService } = await import('@/services/documents-workflow.service');
+
+      // Step 1: Process document with IA
+      const processResult = await documentsService.processDocument(docId, aiModelId);
+
+      // Step 2: Complete integration workflow
+      // IMPORTANT: Always attempt integration, even if document was already processed
+      // A document may have been processed before but integration might have failed or not run
+      const integrationResult = await documentsWorkflowService.completeIntegrationAfterProcessing(
+        docId,
+      );
+
+      return {
+        ...processResult,
+        integration: integrationResult,
+      };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: DOCUMENTS_KEY });
+    },
+  });
+}
+
+export function useExtractionById(extractionId: string | null) {
+  return useQuery({
+    queryKey: ['extraction', extractionId],
+    queryFn: () => {
+      if (!extractionId) throw new Error('Extraction ID required');
+      return documentsService.getExtractionById(extractionId);
+    },
+    enabled: !!extractionId,
+  });
+}
+
+export function useDocumentLatestExtraction(documentId: string | null) {
+  return useQuery({
+    queryKey: [...DOCUMENTS_KEY, 'extraction', documentId],
+    queryFn: () => {
+      if (!documentId) throw new Error('Document ID required');
+      return documentsService.getDocumentExtraction(documentId);
+    },
+    enabled: !!documentId,
   });
 }

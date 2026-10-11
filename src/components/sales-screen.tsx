@@ -4,7 +4,7 @@ import { useSales, useCancelSale } from "@/hooks/useSales";
 import { money } from "./pos-ui";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 
 export function SalesScreen() {
@@ -12,6 +12,18 @@ export function SalesScreen() {
   const { data: sales = [], isLoading } = useSales();
   const cancelSale = useCancelSale();
   const [selectedSale, setSelectedSale] = useState<string | null>(null);
+
+  // Handle search param for auto-selection from global search
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const selectedId = params.get('selected');
+    if (selectedId && sales.length > 0) {
+      if (sales.find(s => s.id === selectedId)) {
+        setSelectedSale(selectedId);
+        window.history.replaceState({}, '', '/sales');
+      }
+    }
+  }, [sales]);
 
   if (isLoading) return <div className="p-8">Cargando ventas...</div>;
 

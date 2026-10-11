@@ -155,7 +155,7 @@ export const documentsService = {
           original_name: file.name,
           file_path: filePath,
           file_size: file.size,
-          uploaded_by: user.id,
+          uploaded_by: null,
         } as any,
       ])
       .select()
@@ -173,6 +173,18 @@ export const documentsService = {
     const { data, error } = await supabase
       .from('documents')
       .update({ original_name: newName, updated_at: new Date().toISOString() })
+      .eq('id', docId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  async updateDocument(docId: string, updates: { original_name?: string; document_type?: string }) {
+    const { data, error } = await supabase
+      .from('documents')
+      .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('id', docId)
       .select()
       .single();
@@ -226,5 +238,71 @@ export const documentsService = {
 
     if (error) throw error;
     return data;
+  },
+
+  async processDocument(documentId: string, aiModelId: string = 'claude-haiku-4-5-20251001') {
+    // Call Edge Function to process document with IA
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+
+    const response = await fetch(
+      `${supabaseUrl}/functions/v1/process-document`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+        body: JSON.stringify({ documentId, aiModelId }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to process document');
+    }
+
+    const result = await response.json();
+
+    // Handle idempotent response (document already processed)
+    if (result.status === 'already_processed') {
+      // Get the latest extraction ID for navigation
+      const existingExtraction = await this.getDocumentExtraction(documentId);
+      return {
+        ...result,
+        isIdempotent: true,
+        extraction_id: existingExtraction?.id,
+      };
+    }
+
+    return result;
+  },
+
+  async getDocumentExtraction(documentId: string) {
+    // Get latest extraction for a document
+    const { data, error } = await supabase
+      .from('document_extractions')
+      .select('*')
+      .eq('document_id', documentId)
+      .order('attempt_number', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows
+    return data || null;
+  },
+
+  async getExtractionById(extractionId: string) {
+    // Get specific extraction by ID with linked document info
+    const { data: extraction, error: extError } = await supabase
+      .from('document_extractions')
+      .select(`
+        *,
+        documents(id, original_name, document_type, processing_status, file_path, created_at, updated_at)
+      `)
+      .eq('id', extractionId)
+      .single();
+
+    if (extError) throw extError;
+    return extraction;
   },
 };

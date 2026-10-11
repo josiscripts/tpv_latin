@@ -147,17 +147,46 @@ export const suppliersService = {
   async getPurchaseStats(supplierId: string) {
     const { data, error } = await supabase
       .from('purchases')
-      .select('total, status')
-      .eq('supplier_id', supplierId);
+      .select(`
+        id,
+        purchase_date,
+        invoice_number,
+        total,
+        status,
+        purchase_lines(quantity)
+      `)
+      .eq('supplier_id', supplierId)
+      .order('purchase_date', { ascending: false });
 
     if (error) throw error;
 
     const purchases = data || [];
     const receivedPurchases = purchases.filter(p => p.status === 'received');
 
+    // Calculate total units in received purchases
+    let totalReceivedUnits = 0;
+    for (const purchase of receivedPurchases) {
+      const lines = (purchase as any).purchase_lines as any[];
+      if (lines && lines.length > 0) {
+        totalReceivedUnits += lines.reduce((sum, line) => sum + (Number(line.quantity) || 0), 0);
+      } else {
+        // Fallback: try to get units from document_extractions
+        const { data: extraction } = await supabase
+          .from('document_extractions')
+          .select('lines_extracted')
+          .eq('invoice_number', purchase.invoice_number)
+          .single();
+
+        if (extraction?.lines_extracted) {
+          const extractedLines = Array.isArray(extraction.lines_extracted) ? extraction.lines_extracted : [];
+          totalReceivedUnits += extractedLines.reduce((sum, line: any) => sum + (Number(line.quantity) || 0), 0);
+        }
+      }
+    }
+
     return {
       totalPurchases: purchases.length,
-      receivedPurchases: receivedPurchases.length,
+      receivedUnits: totalReceivedUnits,
       totalSpent: receivedPurchases.reduce((sum, p) => sum + (p.total ? Number(p.total) : 0), 0),
       lastPurchase: purchases.length > 0 ? purchases[0] : null,
     };
@@ -188,5 +217,88 @@ export const suppliersService = {
 
   async deactivate(id: string) {
     return this.update(id, { active: false });
+  },
+
+  async getDocumentForPurchase(invoiceNumber: string) {
+    const { data: extraction, error: extractError } = await supabase
+      .from('document_extractions')
+      .select('document_id')
+      .eq('invoice_number', invoiceNumber)
+      .single();
+
+    if (extractError || !extraction) return null;
+
+    const { data: document, error: docError } = await supabase
+      .from('documents')
+      .select('id, original_name, file_path')
+      .eq('id', extraction.document_id)
+      .single();
+
+    if (docError || !document || !document.file_path) return null;
+
+    return document;
+  },
+
+  async getDocumentForPurchaseId(purchaseId: string) {
+    // Try direct link first (documents.purchase_id = purchaseId)
+    const { data: document, error: docError } = await supabase
+      .from('documents')
+      .select('id, original_name, file_path')
+      .eq('purchase_id', purchaseId)
+      .single();
+
+    if (!docError && document && document.file_path) {
+      return document;
+    }
+
+    // Fallback: get invoice_number from purchase, then find document via extraction
+    const { data: purchase, error: purchaseError } = await supabase
+      .from('purchases')
+      .select('invoice_number')
+      .eq('id', purchaseId)
+      .single();
+
+    if (purchaseError || !purchase || !purchase.invoice_number) return null;
+
+    // Find document via extraction (for historical documents)
+    const { data: extraction, error: extractError } = await supabase
+      .from('document_extractions')
+      .select('document_id')
+      .eq('invoice_number', purchase.invoice_number)
+      .single();
+
+    if (extractError || !extraction) return null;
+
+    const { data: fallbackDoc, error: fallbackError } = await supabase
+      .from('documents')
+      .select('id, original_name, file_path')
+      .eq('id', extraction.document_id)
+      .single();
+
+    if (fallbackError || !fallbackDoc || !fallbackDoc.file_path) return null;
+
+    return fallbackDoc;
+  },
+
+  async getDocumentSignedUrl(filePath: string) {
+    const { data, error } = await supabase.storage
+      .from('documents')
+      .createSignedUrl(filePath, 3600);
+
+    if (error || !data?.signedUrl) return null;
+    return data.signedUrl;
+  },
+
+  async getExtractedLines(invoiceNumber: string) {
+    const { data, error } = await supabase
+      .from('document_extractions')
+      .select('lines_extracted')
+      .eq('invoice_number', invoiceNumber)
+      .single();
+
+    if (error || !data?.lines_extracted) return null;
+
+    const lines = Array.isArray(data.lines_extracted) ? data.lines_extracted : [];
+    return lines.length > 0 ? lines : null;
   },
 };

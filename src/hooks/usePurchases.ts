@@ -43,3 +43,19 @@ export function useReceivePurchase() {
     },
   });
 }
+
+export function useSearchPurchases(query: string) {
+  return useQuery({
+    queryKey: [...PURCHASES_KEY, 'search', query],
+    queryFn: () => purchasesService.search(query),
+    enabled: !!query,
+  });
+}
+
+export function useSearchPurchasesByProduct(productQuery: string) {
+  return useQuery({
+    queryKey: [...PURCHASES_KEY, 'search-product', productQuery],
+    queryFn: () => purchasesService.searchByProduct(productQuery),
+    enabled: !!productQuery,
+  });
+}

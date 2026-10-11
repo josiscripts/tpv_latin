@@ -1,5 +1,5 @@
-import { Plus, Search, X } from "lucide-react";
-import { useState } from "react";
+import { Plus, Search, X, ChevronRight } from "lucide-react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -102,6 +102,18 @@ export function SuppliersScreen() {
   const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
   const { data: suppliers = [], isLoading } = useSuppliers();
 
+  // Handle search param for auto-selection from global search
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const selectedId = params.get('selected');
+    if (selectedId && suppliers.length > 0) {
+      if (suppliers.find(s => s.id === selectedId)) {
+        setSelectedSupplierId(selectedId);
+        window.history.replaceState({}, '', '/suppliers');
+      }
+    }
+  }, [suppliers]);
+
   if (isLoading) return <div className="p-8">Cargando proveedores...</div>;
 
   if (selectedSupplierId) {
@@ -149,32 +161,30 @@ export function SuppliersScreen() {
           No hay proveedores que coincidan
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           {filtered.map((sup, i) => (
             <button
               key={sup.id}
               onClick={() => setSelectedSupplierId(sup.id)}
-              className="rounded-lg border bg-card p-5 text-left hover:shadow-md hover:border-foreground transition-all"
+              className="group rounded-lg border bg-card transition-all hover:shadow-lg hover:border-primary cursor-pointer text-left"
             >
-              <div className="w-14 h-14 bg-gray-100 rounded border border-gray-300 flex items-center justify-center overflow-hidden mb-3">
-                {(sup as any).logo_url_signed ? (
-                  <img
-                    src={(sup as any).logo_url_signed}
-                    alt={sup.name}
-                    className="w-full h-full object-contain"
-                  />
-                ) : (
-                  <div className={`w-full h-full grid place-items-center ${colors[i % colors.length]} text-white text-sm font-bold`}>
-                    {sup.name.substring(0, 2).toUpperCase()}
-                  </div>
-                )}
-              </div>
-              <h2 className="text-sm font-bold">{sup.name}</h2>
-              {sup.tax_id && <p className="text-[11px] text-muted-foreground">{sup.tax_id}</p>}
-              <p className="text-[11px] text-muted-foreground">{sup.contact_name || "Sin contacto"}</p>
-              <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-                {sup.phone && <p>📞 {sup.phone}</p>}
-                {sup.email && <p>📧 {sup.email}</p>}
+              {(sup as any).logo_url_signed ? (
+                <div className="w-full aspect-square overflow-hidden rounded-t-lg bg-muted">
+                  <img src={(sup as any).logo_url_signed} alt={sup.name} className="h-full w-full object-contain" />
+                </div>
+              ) : (
+                <div className={`w-full aspect-square ${colors[i % colors.length]} rounded-t-lg flex items-center justify-center`}>
+                  <span className="text-4xl font-bold text-white opacity-30">{sup.name.charAt(0).toUpperCase()}</span>
+                </div>
+              )}
+              <div className="p-4">
+                <h2 className="font-bold text-sm">{sup.name}</h2>
+                {sup.tax_id && <p className="mt-1 text-xs text-muted-foreground">{sup.tax_id}</p>}
+                <p className="text-xs text-muted-foreground line-clamp-1">{sup.contact_name || "Sin contacto"}</p>
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-primary">{sup.phone || sup.email || "—"}</span>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                </div>
               </div>
             </button>
           ))}

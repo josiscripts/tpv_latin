@@ -1,15 +1,16 @@
-import { Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Plus, Trash2, Search, X } from "lucide-react";
+import { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { PageHeader } from "./app-shell";
 import { usePos } from "./pos-context";
-import { usePurchases, useCreatePurchase, useReceivePurchase } from "@/hooks/usePurchases";
+import { usePurchases, useCreatePurchase, useReceivePurchase, useSearchPurchases, useSearchPurchasesByProduct } from "@/hooks/usePurchases";
 import { useSuppliers } from "@/hooks/useSuppliers";
 import { useProducts } from "@/hooks/useProducts";
 import { money } from "./pos-ui";
+import { PurchaseDetail } from "./purchase-detail";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 const purchaseSchema = z.object({
   supplier_id: z.string().min(1),
   purchase_date: z.string(),
+  type: z.string().default('factura'),
   lines: z.array(z.object({
     product_id: z.string().min(1),
     quantity: z.coerce.number().min(0.01),
@@ -40,6 +42,7 @@ function PurchaseDialog({ trigger }: { trigger?: React.ReactNode }) {
     resolver: zodResolver(purchaseSchema),
     defaultValues: {
       purchase_date: new Date().toISOString().split('T')[0],
+      type: 'factura',
       lines: [{ product_id: "", quantity: 1, unit_cost: 0, tax_rate: 0, total: 0 }],
     },
   });
@@ -51,6 +54,12 @@ function PurchaseDialog({ trigger }: { trigger?: React.ReactNode }) {
 
   const onSubmit = async (data: PurchaseFormData) => {
     try {
+      // Validar que haya al menos una línea
+      if (!data.lines || data.lines.length === 0) {
+        toast.error("Debes agregar al menos una línea de compra");
+        return;
+      }
+
       const subtotal = data.lines.reduce((sum, line) => sum + line.total, 0);
       const tax = subtotal * 0.1; // IVA 10%
 
@@ -58,6 +67,7 @@ function PurchaseDialog({ trigger }: { trigger?: React.ReactNode }) {
         purchase: {
           supplier_id: data.supplier_id,
           purchase_date: data.purchase_date,
+          type: data.type,
           subtotal,
           tax,
           total: subtotal + tax,
@@ -83,7 +93,7 @@ function PurchaseDialog({ trigger }: { trigger?: React.ReactNode }) {
           <DialogTitle>Nueva compra</DialogTitle>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div>
               <Label>Proveedor</Label>
               <Select {...form.register("supplier_id")}>
@@ -100,6 +110,19 @@ function PurchaseDialog({ trigger }: { trigger?: React.ReactNode }) {
             <div>
               <Label>Fecha</Label>
               <Input type="date" {...form.register("purchase_date")} />
+            </div>
+            <div>
+              <Label>Tipo</Label>
+              <Select {...form.register("type")}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="factura">Factura</SelectItem>
+                  <SelectItem value="albarán">Albarán</SelectItem>
+                  <SelectItem value="nota_crédito">Nota de Crédito</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -175,8 +198,35 @@ function PurchaseDialog({ trigger }: { trigger?: React.ReactNode }) {
 
 export function PurchasesScreen() {
   const { t } = usePos();
-  const { data: purchases = [], isLoading } = usePurchases();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMode, setSearchMode] = useState<"supplier" | "product">("supplier");
+  const [selectedPurchaseId, setSelectedPurchaseId] = useState<string | null>(null);
+
+  const { data: purchasesBySupplier = [], isLoading: isLoadingSupplier } = useSearchPurchases(
+    searchMode === "supplier" ? searchQuery : ""
+  );
+  const { data: purchasesByProduct = [], isLoading: isLoadingProduct } = useSearchPurchasesByProduct(
+    searchMode === "product" ? searchQuery : ""
+  );
+  const { data: allPurchases = [], isLoading: isLoadingAll } = usePurchases();
   const receivePurchase = useReceivePurchase();
+
+  const isLoading = isLoadingSupplier || isLoadingProduct || isLoadingAll;
+  const purchases = searchQuery
+    ? (searchMode === "supplier" ? purchasesBySupplier : purchasesByProduct)
+    : allPurchases;
+
+  // Handle search param for auto-selection from global search
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const selectedId = params.get('selected');
+    if (selectedId && allPurchases.length > 0) {
+      if (allPurchases.find(p => p.id === selectedId)) {
+        setSelectedPurchaseId(selectedId);
+        window.history.replaceState({}, '', '/purchases');
+      }
+    }
+  }, [allPurchases]);
 
   if (isLoading) return <div className="p-8">Cargando compras...</div>;
 
@@ -189,47 +239,148 @@ export function PurchasesScreen() {
     }
   };
 
+  const getTypeLabel = (type: string | undefined) => {
+    const typeMap: Record<string, string> = {
+      factura: "Factura",
+      albarán: "Albarán",
+      nota_crédito: "Nota de Crédito",
+    };
+    return typeMap[type || "factura"] || type || "Factura";
+  };
+
+  const getTotalQuantity = (purchase: any) => {
+    const lines = (purchase.purchase_lines as any) || [];
+    if (lines.length === 0) {
+      return -1; // Signal for "no data"
+    }
+    return lines.reduce(
+      (sum: number, line: any) => sum + Number(line.quantity || 0),
+      0
+    );
+  };
+
+  // Show detail view if a purchase is selected
+  if (selectedPurchaseId) {
+    return (
+      <div>
+        <PurchaseDetail purchaseId={selectedPurchaseId} onBack={() => setSelectedPurchaseId(null)} />
+      </div>
+    );
+  }
+
   return (
     <>
       <PageHeader title={t("purchases")} subtitle="Entrada de mercancía" action={<PurchaseDialog />} />
+
+      <div className="mb-4 space-y-3">
+        <div className="flex gap-2">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder={searchMode === "supplier" ? "Buscar por proveedor o factura..." : "Buscar por producto..."}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-2.5"
+              >
+                <X className="h-4 w-4 text-muted-foreground" />
+              </button>
+            )}
+          </div>
+          <Select value={searchMode} onValueChange={(v) => {
+            setSearchMode(v as "supplier" | "product");
+            setSearchQuery("");
+          }}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="supplier">Proveedor/Factura</SelectItem>
+              <SelectItem value="product">Producto</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       <div className="rounded-lg border bg-card overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="border-b bg-muted/50 text-xs uppercase">
             <tr>
-              <th className="px-4 py-3 font-semibold">Proveedor</th>
-              <th className="px-4 py-3 font-semibold">Fecha</th>
-              <th className="px-4 py-3 font-semibold">Líneas</th>
-              <th className="px-4 py-3 font-semibold">Total</th>
-              <th className="px-4 py-3 font-semibold">Estado</th>
-              <th className="px-4 py-3 font-semibold">Acción</th>
+              <th className="px-4 py-3 font-semibold text-left">Proveedor</th>
+              <th className="px-4 py-3 font-semibold text-left">Fecha</th>
+              <th className="px-4 py-3 font-semibold text-left">Tipo</th>
+              <th className="px-4 py-3 font-semibold text-right">Cantidad</th>
+              <th className="px-4 py-3 font-semibold text-right">Base imponible</th>
+              <th className="px-4 py-3 font-semibold text-right">IVA</th>
+              <th className="px-4 py-3 font-semibold text-right">Total</th>
+              <th className="px-4 py-3 font-semibold text-center">Estado</th>
+              <th className="px-4 py-3 font-semibold text-center">Acción</th>
             </tr>
           </thead>
           <tbody>
-            {purchases.map((purchase) => (
-              <tr key={purchase.id} className="border-b hover:bg-muted/30">
-                <td className="px-4 py-3">{(purchase.suppliers as any)?.name || "?"}</td>
-                <td className="px-4 py-3">{new Date(purchase.purchase_date).toLocaleDateString()}</td>
-                <td className="px-4 py-3">{(purchase.purchase_lines as any)?.length || 0}</td>
-                <td className="px-4 py-3 font-bold">{money(Number(purchase.total))}</td>
-                <td className="px-4 py-3">
-                  <span className={`px-2 py-1 rounded text-xs ${purchase.status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
-                    {purchase.status === 'draft' ? 'Borrador' : 'Recibida'}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  {purchase.status === 'draft' && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleReceive(purchase.id)}
-                      disabled={receivePurchase.isPending}
-                    >
-                      Recibir
-                    </Button>
-                  )}
+            {purchases.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
+                  {searchQuery ? "No se encontraron compras" : "No hay compras registradas"}
                 </td>
               </tr>
-            ))}
+            ) : (
+              purchases.map((purchase) => (
+                <tr key={purchase.id} className="border-b hover:bg-muted/30">
+                  <td className="px-4 py-3 cursor-pointer" onClick={() => setSelectedPurchaseId(purchase.id)}>{(purchase.suppliers as any)?.name || "?"}</td>
+                  <td className="px-4 py-3 cursor-pointer" onClick={() => setSelectedPurchaseId(purchase.id)}>{new Date(purchase.purchase_date).toLocaleDateString()}</td>
+                  <td className="px-4 py-3 cursor-pointer" onClick={() => setSelectedPurchaseId(purchase.id)}>{getTypeLabel((purchase as any).type)}</td>
+                  <td className="px-4 py-3 text-right cursor-pointer" onClick={() => setSelectedPurchaseId(purchase.id)}>
+                    {(() => {
+                      const qty = getTotalQuantity(purchase);
+                      if (qty === -1) return "—";
+                      // Show integer without .00, keep decimals if present
+                      return Number.isInteger(qty) ? qty.toString() : qty.toFixed(2);
+                    })()}
+                  </td>
+                  <td className="px-4 py-3 text-right cursor-pointer" onClick={() => setSelectedPurchaseId(purchase.id)}>
+                    {purchase.subtotal !== null ? money(Number(purchase.subtotal)) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right cursor-pointer" onClick={() => setSelectedPurchaseId(purchase.id)}>
+                    {purchase.tax !== null ? money(Number(purchase.tax)) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right font-bold cursor-pointer" onClick={() => setSelectedPurchaseId(purchase.id)}>
+                    {purchase.total !== null ? money(Number(purchase.total)) : "No disponible"}
+                  </td>
+                  <td className="px-4 py-3 text-center cursor-pointer" onClick={() => setSelectedPurchaseId(purchase.id)}>
+                    <span className={`px-2 py-1 rounded text-xs whitespace-nowrap ${
+                      purchase.status === 'draft'
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : purchase.status === 'received'
+                        ? 'bg-green-100 text-green-800'
+                        : purchase.status === 'partial'
+                        ? 'bg-blue-100 text-blue-800'
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {purchase.status === 'draft' ? 'Borrador' :
+                       purchase.status === 'received' ? 'Recibida' :
+                       purchase.status === 'partial' ? 'Parcial' : 'Cancelada'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {purchase.status === 'draft' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleReceive(purchase.id)}
+                        disabled={receivePurchase.isPending}
+                      >
+                        Recibir
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

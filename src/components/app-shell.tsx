@@ -1,9 +1,10 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { Bell, Boxes, ChartNoAxesCombined, ChevronLeft, CircleDollarSign, ClipboardList, FileText, LayoutDashboard, LogOut, Menu, Moon, Package, Search, Settings, ShoppingBasket, ShoppingCart, Store, Sun, Tags, Truck, UsersRound } from "lucide-react";
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { usePos } from "./pos-context";
 import { useAuthContext } from "./auth-provider";
 import { NotificationsPanel } from "./notifications-panel";
+import { GlobalSearch } from "./global-search";
 import { useNotifications } from "@/hooks/useNotifications";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,7 +39,7 @@ export function AppShell({children}:{children:ReactNode}){
   </aside>
   <div className="flex min-w-0 flex-1 flex-col">
    <header className="flex h-[72px] shrink-0 items-center justify-between gap-5 border-b bg-background px-7">
-    <div className="relative w-full max-w-[460px]"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={17}/><Input className="h-10 bg-muted/55 pl-10 shadow-none" placeholder={t("search")}/></div>
+    <GlobalSearch />
     <div className="flex items-center gap-2">
      <Select value={language} onValueChange={(v)=>setLanguage(v as "es"|"en"|"ca")}><SelectTrigger className="h-9 w-[118px]"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="es">ES · Español</SelectItem><SelectItem value="en">EN · English</SelectItem><SelectItem value="ca">CA · Català</SelectItem></SelectContent></Select>
      <Button variant="ghost" size="icon" onClick={()=>setDark(!dark)} aria-label="Cambiar tema">{dark?<Sun size={18}/>:<Moon size={18}/>}</Button>

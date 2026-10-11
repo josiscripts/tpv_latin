@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { Download, FileIcon, Trash2, Upload, Edit2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDocumentsBySale, useDocumentsByPurchase, useUploadDocument, useDeleteDocument, useRenameDocument } from '@/hooks/useDocuments';
+import { documentsService } from '@/services/documents.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
@@ -16,6 +17,7 @@ interface DocumentsPanelProps {
 export function DocumentsPanel({ saleId, purchaseId, title = 'Documentos' }: DocumentsPanelProps) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: documents = [], isLoading } = saleId
@@ -78,6 +80,24 @@ export function DocumentsPanel({ saleId, purchaseId, title = 'Documentos' }: Doc
       } catch (error) {
         toast.error('Error al eliminar documento');
       }
+    }
+  };
+
+  const handleDownloadFile = async (doc: any) => {
+    try {
+      setDownloadingId(doc.id);
+      const url = await documentsService.getSignedUrl(doc.file_path);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = doc.original_name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success(`Descargado: ${doc.original_name}`);
+    } catch (error) {
+      toast.error('Error al descargar archivo');
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -176,16 +196,11 @@ export function DocumentsPanel({ saleId, purchaseId, title = 'Documentos' }: Doc
                   size="icon"
                   variant="ghost"
                   className="h-6 w-6"
-                  asChild
+                  onClick={() => handleDownloadFile(doc)}
+                  disabled={downloadingId === doc.id}
+                  title="Descargar"
                 >
-                  <a
-                    href={`${process.env.VITE_SUPABASE_URL}/storage/v1/object/public/documents/${doc.file_path}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Descargar"
-                  >
-                    <Download size={12} />
-                  </a>
+                  <Download size={12} />
                 </Button>
 
                 <Button

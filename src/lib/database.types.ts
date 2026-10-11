@@ -1,6 +1,3 @@
-Connecting to db 5432
-(node:1) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 error listeners added to [BoundPool]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
-(Use `node --trace-warnings ...` to show where the warning was created)
 export type Json =
   | string
   | number
@@ -10,31 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       bridge_config: {
@@ -169,15 +141,119 @@ export type Database = {
         }
         Relationships: []
       }
+      document_extractions: {
+        Row: {
+          attempt_number: number | null
+          confidence_invoice: number | null
+          confidence_lines: number | null
+          confidence_score: number | null
+          confidence_supplier: number | null
+          created_at: string
+          currency: string | null
+          document_id: string
+          document_type_detected: string | null
+          due_date: string | null
+          extracted_at: string
+          extraction_model: string
+          id: string
+          invoice_date: string | null
+          invoice_number: string | null
+          lines_extracted: Json | null
+          notes: string | null
+          processing_error: string | null
+          processing_state: string | null
+          raw_response: Json
+          raw_text_extracted: string | null
+          subtotal: number | null
+          tax_rate: number | null
+          tax_total: number | null
+          total: number | null
+          vendor_address: string | null
+          vendor_name: string | null
+          vendor_tax_id: string | null
+        }
+        Insert: {
+          attempt_number?: number | null
+          confidence_invoice?: number | null
+          confidence_lines?: number | null
+          confidence_score?: number | null
+          confidence_supplier?: number | null
+          created_at?: string
+          currency?: string | null
+          document_id: string
+          document_type_detected?: string | null
+          due_date?: string | null
+          extracted_at?: string
+          extraction_model: string
+          id?: string
+          invoice_date?: string | null
+          invoice_number?: string | null
+          lines_extracted?: Json | null
+          notes?: string | null
+          processing_error?: string | null
+          processing_state?: string | null
+          raw_response: Json
+          raw_text_extracted?: string | null
+          subtotal?: number | null
+          tax_rate?: number | null
+          tax_total?: number | null
+          total?: number | null
+          vendor_address?: string | null
+          vendor_name?: string | null
+          vendor_tax_id?: string | null
+        }
+        Update: {
+          attempt_number?: number | null
+          confidence_invoice?: number | null
+          confidence_lines?: number | null
+          confidence_score?: number | null
+          confidence_supplier?: number | null
+          created_at?: string
+          currency?: string | null
+          document_id?: string
+          document_type_detected?: string | null
+          due_date?: string | null
+          extracted_at?: string
+          extraction_model?: string
+          id?: string
+          invoice_date?: string | null
+          invoice_number?: string | null
+          lines_extracted?: Json | null
+          notes?: string | null
+          processing_error?: string | null
+          processing_state?: string | null
+          raw_response?: Json
+          raw_text_extracted?: string | null
+          subtotal?: number | null
+          tax_rate?: number | null
+          tax_total?: number | null
+          total?: number | null
+          vendor_address?: string | null
+          vendor_name?: string | null
+          vendor_tax_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_extractions_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       documents: {
         Row: {
           created_at: string
           deleted_at: string | null
+          document_date: string | null
           document_type: string
           file_path: string
           file_size: number | null
           id: string
           original_name: string
+          processing_error: string | null
+          processing_status: string | null
           purchase_id: string | null
           sale_id: string | null
           updated_at: string
@@ -186,11 +262,14 @@ export type Database = {
         Insert: {
           created_at?: string
           deleted_at?: string | null
+          document_date?: string | null
           document_type: string
           file_path: string
           file_size?: number | null
           id?: string
           original_name: string
+          processing_error?: string | null
+          processing_status?: string | null
           purchase_id?: string | null
           sale_id?: string | null
           updated_at?: string
@@ -199,11 +278,14 @@ export type Database = {
         Update: {
           created_at?: string
           deleted_at?: string | null
+          document_date?: string | null
           document_type?: string
           file_path?: string
           file_size?: number | null
           id?: string
           original_name?: string
+          processing_error?: string | null
+          processing_status?: string | null
           purchase_id?: string | null
           sale_id?: string | null
           updated_at?: string
@@ -748,6 +830,7 @@ export type Database = {
           created_at: string
           email: string | null
           id: string
+          logo_url: string | null
           name: string
           phone: string | null
           tax_id: string | null
@@ -760,6 +843,7 @@ export type Database = {
           created_at?: string
           email?: string | null
           id?: string
+          logo_url?: string | null
           name: string
           phone?: string | null
           tax_id?: string | null
@@ -772,6 +856,7 @@ export type Database = {
           created_at?: string
           email?: string | null
           id?: string
+          logo_url?: string | null
           name?: string
           phone?: string | null
           tax_id?: string | null
@@ -936,6 +1021,7 @@ export type Database = {
       user_preferences: {
         Row: {
           accent_color: string
+          ai_model_id: string | null
           language: string
           theme: string
           updated_at: string
@@ -943,6 +1029,7 @@ export type Database = {
         }
         Insert: {
           accent_color?: string
+          ai_model_id?: string | null
           language?: string
           theme?: string
           updated_at?: string
@@ -950,6 +1037,7 @@ export type Database = {
         }
         Update: {
           accent_color?: string
+          ai_model_id?: string | null
           language?: string
           theme?: string
           updated_at?: string
@@ -960,6 +1048,50 @@ export type Database = {
             foreignKeyName: "user_preferences_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_ai_credentials: {
+        Row: {
+          id: string
+          user_id: string
+          provider: string
+          api_key_encrypted: string
+          model_id: string
+          last_validated_at: string | null
+          validation_status: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          provider?: string
+          api_key_encrypted: string
+          model_id?: string
+          last_validated_at?: string | null
+          validation_status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          provider?: string
+          api_key_encrypted?: string
+          model_id?: string
+          last_validated_at?: string | null
+          validation_status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_ai_credentials_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
@@ -1122,9 +1254,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },

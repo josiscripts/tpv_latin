@@ -29,6 +29,73 @@ export const purchasesService = {
     return data;
   },
 
+  async search(query: string) {
+    const searchTerm = `%${query}%`;
+    const { data, error } = await supabase
+      .from('purchases')
+      .select(`
+        *,
+        suppliers(id, name),
+        purchase_lines(
+          id,
+          product_id,
+          quantity,
+          unit_cost,
+          tax_rate,
+          total,
+          products(id, name, sku)
+        )
+      `)
+      .or(`invoice_number.ilike.${searchTerm},suppliers.name.ilike.${searchTerm}`)
+      .order('purchase_date', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  },
+
+  async searchByProduct(productQuery: string) {
+    const searchTerm = `%${productQuery}%`;
+    const { data: products, error: productError } = await supabase
+      .from('products')
+      .select('id')
+      .or(`name.ilike.${searchTerm},sku.ilike.${searchTerm}`)
+      .limit(100);
+
+    if (productError) throw productError;
+
+    if (!products || products.length === 0) return [];
+
+    const productIds = products.map((p) => p.id);
+
+    const { data, error } = await supabase
+      .from('purchase_lines')
+      .select(`
+        purchase_id,
+        purchases(
+          *,
+          suppliers(id, name),
+          purchase_lines(
+            id,
+            product_id,
+            quantity,
+            unit_cost,
+            tax_rate,
+            total,
+            products(id, name, sku)
+          )
+        )
+      `)
+      .in('product_id', productIds);
+
+    if (error) throw error;
+
+    const purchases = data
+      ?.map((line) => (line.purchases as any))
+      .filter((p, i, arr) => arr.findIndex((x) => x.id === p.id) === i) || [];
+
+    return purchases;
+  },
+
   async getById(id: string) {
     const { data, error } = await supabase
       .from('purchases')
@@ -52,9 +119,21 @@ export const purchasesService = {
     lines: Array<Omit<PurchaseLineInsert, 'purchase_id'>>
   ) {
     // Crear cabecera de compra
-    const { data: purchaseData, error: purchaseError } = await supabase
+    const purchaseData: any = {
+      supplier_id: purchase.supplier_id,
+      purchase_date: purchase.purchase_date,
+      subtotal: purchase.subtotal,
+      tax: purchase.tax,
+      total: purchase.total,
+      status: purchase.status,
+      notes: purchase.notes,
+      invoice_number: purchase.invoice_number,
+      type: (purchase as any).type || 'factura',
+    };
+
+    const { data: createdPurchase, error: purchaseError } = await supabase
       .from('purchases')
-      .insert([purchase])
+      .insert([purchaseData])
       .select()
       .single();
 
@@ -63,7 +142,7 @@ export const purchasesService = {
     // Crear líneas con el ID de la compra
     const linesToInsert = lines.map((line) => ({
       ...line,
-      purchase_id: purchaseData.id,
+      purchase_id: createdPurchase.id,
     }));
 
     const { data: linesData, error: linesError } = await supabase
@@ -73,7 +152,7 @@ export const purchasesService = {
 
     if (linesError) throw linesError;
 
-    return { purchase: purchaseData, lines: linesData };
+    return { purchase: createdPurchase, lines: linesData };
   },
 
   async receivePurchase(purchaseId: string) {

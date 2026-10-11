@@ -25,6 +25,13 @@ export function useCreateSupplier() {
   });
 }
 
+export function useSupplier(id: string) {
+  return useQuery({
+    queryKey: [...SUPPLIERS_KEY, id],
+    queryFn: () => suppliersService.getById(id),
+  });
+}
+
 export function useUpdateSupplier() {
   const queryClient = useQueryClient();
 
@@ -34,5 +41,35 @@ export function useUpdateSupplier() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: SUPPLIERS_KEY });
     },
+  });
+}
+
+export function useCheckDuplicatesByTaxId(taxId: string | null) {
+  return useQuery({
+    queryKey: [...SUPPLIERS_KEY, 'tax-id', taxId],
+    queryFn: () => suppliersService.findByTaxId(taxId),
+    enabled: !!taxId,
+  });
+}
+
+export function useCheckDuplicatesByName(name: string) {
+  return useQuery({
+    queryKey: [...SUPPLIERS_KEY, 'similar', name],
+    queryFn: () => suppliersService.findByNameSimilarity(name),
+    enabled: name.length > 2,
+  });
+}
+
+export function usePurchaseHistory(supplierId: string) {
+  return useQuery({
+    queryKey: [...SUPPLIERS_KEY, supplierId, 'purchases'],
+    queryFn: () => suppliersService.getPurchaseHistory(supplierId),
+  });
+}
+
+export function usePurchaseStats(supplierId: string) {
+  return useQuery({
+    queryKey: [...SUPPLIERS_KEY, supplierId, 'stats'],
+    queryFn: () => suppliersService.getPurchaseStats(supplierId),
   });
 }

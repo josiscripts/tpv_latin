@@ -159,6 +159,7 @@ export function ProductsScreen() {
   const { data: categories = [] } = useCategories();
   const deleteProduct = useDeleteProduct();
 
+
   const getStockState = (stock: number, minStock: number) => {
     if (stock === 0) return "out";
     if (stock <= minStock) return "critical";

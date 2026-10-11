@@ -24,8 +24,10 @@ import { Route as StockRouteImport } from './routes/stock'
 import { Route as SuppliersRouteImport } from './routes/suppliers'
 import { Route as CategoriesIndexRouteImport } from './routes/categories/index'
 import { Route as CategoriesIdRouteImport } from './routes/categories/$id'
+import { Route as DocumentsIndexRouteImport } from './routes/documents/index'
 import { Route as ProductsIndexRouteImport } from './routes/products/index'
 import { Route as ProductsIdRouteImport } from './routes/products/$id'
+import { Route as DocumentsExtractionIdRouteImport } from './routes/documents/extraction/$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -102,6 +104,11 @@ const CategoriesIdRoute = CategoriesIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => CategoriesRoute,
 } as any)
+const DocumentsIndexRoute = DocumentsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DocumentsRoute,
+} as any)
 const ProductsIndexRoute = ProductsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -112,11 +119,16 @@ const ProductsIdRoute = ProductsIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => ProductsRoute,
 } as any)
+const DocumentsExtractionIdRoute = DocumentsExtractionIdRouteImport.update({
+  id: '/extraction/$id',
+  path: '/extraction/$id',
+  getParentRoute: () => DocumentsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/categories': typeof CategoriesRouteWithChildren
-  '/documents': typeof DocumentsRoute
+  '/documents': typeof DocumentsRouteWithChildren
   '/login': typeof LoginRoute
   '/pos': typeof PosRoute
   '/products': typeof ProductsRouteWithChildren
@@ -130,11 +142,12 @@ export interface FileRoutesByFullPath {
   '/categories/$id': typeof CategoriesIdRoute
   '/products/$id': typeof ProductsIdRoute
   '/categories/': typeof CategoriesIndexRoute
+  '/documents/': typeof DocumentsIndexRoute
   '/products/': typeof ProductsIndexRoute
+  '/documents/extraction/$id': typeof DocumentsExtractionIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/documents': typeof DocumentsRoute
   '/login': typeof LoginRoute
   '/pos': typeof PosRoute
   '/profile': typeof ProfileRoute
@@ -147,13 +160,15 @@ export interface FileRoutesByTo {
   '/categories/$id': typeof CategoriesIdRoute
   '/products/$id': typeof ProductsIdRoute
   '/categories': typeof CategoriesIndexRoute
+  '/documents': typeof DocumentsIndexRoute
   '/products': typeof ProductsIndexRoute
+  '/documents/extraction/$id': typeof DocumentsExtractionIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/categories': typeof CategoriesRouteWithChildren
-  '/documents': typeof DocumentsRoute
+  '/documents': typeof DocumentsRouteWithChildren
   '/login': typeof LoginRoute
   '/pos': typeof PosRoute
   '/products': typeof ProductsRouteWithChildren
@@ -167,7 +182,9 @@ export interface FileRoutesById {
   '/categories/$id': typeof CategoriesIdRoute
   '/products/$id': typeof ProductsIdRoute
   '/categories/': typeof CategoriesIndexRoute
+  '/documents/': typeof DocumentsIndexRoute
   '/products/': typeof ProductsIndexRoute
+  '/documents/extraction/$id': typeof DocumentsExtractionIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -188,11 +205,12 @@ export interface FileRouteTypes {
     | '/categories/$id'
     | '/products/$id'
     | '/categories/'
+    | '/documents/'
     | '/products/'
+    | '/documents/extraction/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/documents'
     | '/login'
     | '/pos'
     | '/profile'
@@ -205,7 +223,9 @@ export interface FileRouteTypes {
     | '/categories/$id'
     | '/products/$id'
     | '/categories'
+    | '/documents'
     | '/products'
+    | '/documents/extraction/$id'
   id:
     | '__root__'
     | '/'
@@ -224,13 +244,15 @@ export interface FileRouteTypes {
     | '/categories/$id'
     | '/products/$id'
     | '/categories/'
+    | '/documents/'
     | '/products/'
+    | '/documents/extraction/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CategoriesRoute: typeof CategoriesRouteWithChildren
-  DocumentsRoute: typeof DocumentsRoute
+  DocumentsRoute: typeof DocumentsRouteWithChildren
   LoginRoute: typeof LoginRoute
   PosRoute: typeof PosRoute
   ProductsRoute: typeof ProductsRouteWithChildren
@@ -350,6 +372,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CategoriesIdRouteImport
       parentRoute: typeof CategoriesRoute
     }
+    '/documents/': {
+      id: '/documents/'
+      path: '/'
+      fullPath: '/documents/'
+      preLoaderRoute: typeof DocumentsIndexRouteImport
+      parentRoute: typeof DocumentsRoute
+    }
     '/products/': {
       id: '/products/'
       path: '/'
@@ -363,6 +392,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/products/$id'
       preLoaderRoute: typeof ProductsIdRouteImport
       parentRoute: typeof ProductsRoute
+    }
+    '/documents/extraction/$id': {
+      id: '/documents/extraction/$id'
+      path: '/extraction/$id'
+      fullPath: '/documents/extraction/$id'
+      preLoaderRoute: typeof DocumentsExtractionIdRouteImport
+      parentRoute: typeof DocumentsRoute
     }
   }
 }
@@ -379,6 +415,20 @@ const CategoriesRouteChildren: CategoriesRouteChildren = {
 
 const CategoriesRouteWithChildren = CategoriesRoute._addFileChildren(
   CategoriesRouteChildren,
+)
+
+interface DocumentsRouteChildren {
+  DocumentsIndexRoute: typeof DocumentsIndexRoute
+  DocumentsExtractionIdRoute: typeof DocumentsExtractionIdRoute
+}
+
+const DocumentsRouteChildren: DocumentsRouteChildren = {
+  DocumentsIndexRoute: DocumentsIndexRoute,
+  DocumentsExtractionIdRoute: DocumentsExtractionIdRoute,
+}
+
+const DocumentsRouteWithChildren = DocumentsRoute._addFileChildren(
+  DocumentsRouteChildren,
 )
 
 interface ProductsRouteChildren {
@@ -398,7 +448,7 @@ const ProductsRouteWithChildren = ProductsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CategoriesRoute: CategoriesRouteWithChildren,
-  DocumentsRoute: DocumentsRoute,
+  DocumentsRoute: DocumentsRouteWithChildren,
   LoginRoute: LoginRoute,
   PosRoute: PosRoute,
   ProductsRoute: ProductsRouteWithChildren,

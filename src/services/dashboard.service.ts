@@ -217,13 +217,15 @@ export const dashboardService = {
         grouped[method] = { count: 0, total: 0 };
       }
       grouped[method].count += 1;
-      grouped[method].total += Number(sale.total);
+      grouped[method].total += Number(sale.total || 0);
     });
 
-    const totalCount = Object.values(grouped).reduce((sum, m) => sum + m.count, 0);
+    // Calcular porcentaje por IMPORTE (no cantidad de transacciones)
+    const totalAmount = Object.values(grouped).reduce((sum, m) => sum + m.total, 0);
     const results = Object.entries(grouped).map(([name, data]) => ({
       n: name,
-      v: totalCount > 0 ? Math.round((data.count / totalCount) * 100) : 0,
+      v: totalAmount > 0 ? Math.round((data.total / totalAmount) * 100) : 0,
+      count: data.count, // Incluir cantidad para referencia
     }));
 
     return results;

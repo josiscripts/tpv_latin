@@ -32,5 +32,6 @@ dist-ssr
 *.sw?
 
 # Environment variables with secrets
+supabase/.env.local
 supabase/functions/.env
 supabase/functions/process-document/.env
