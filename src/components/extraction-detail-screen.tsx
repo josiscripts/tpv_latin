@@ -6,12 +6,23 @@ import { useExtractionById } from '@/hooks/useDocuments';
 import { documentsService } from '@/services/documents.service';
 import { documentSupplierIntegrationService } from '@/services/document-supplier-integration.service';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
+import { approveExtractionAndCreatePurchase } from '@/services/extraction-approval.service';
 import { toast } from 'sonner';
+
+// Las funciones RPC de aprobación no están en los tipos generados; se tipan aquí.
+async function callRpc(name: string, args: Record<string, unknown>): Promise<unknown> {
+  const client = supabase as unknown as { rpc: (fn: string, a: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }> };
+  const { data, error } = await client.rpc(name, args);
+  if (error) throw new Error(error.message);
+  return data;
+}
 
 export function ExtractionDetailScreen() {
   const { id } = useParams({ from: '/documents/extraction/$id' as const });
   const navigate = useNavigate();
   const { data: extraction, isLoading, error, refetch } = useExtractionById(id);
+  const { profile } = useAuth();
   const [isApproving, setIsApproving] = useState(false);
 
   const handleDownload = async () => {
@@ -33,26 +44,35 @@ export function ExtractionDetailScreen() {
     }
   };
 
-  const handleApprove = async () => {
+  const handleApproveAndCreatePurchase = async () => {
     if (!extraction) return;
+    setIsApproving(true);
+    const loadingId = toast.loading('Creando proveedor y compra...');
     try {
-      setIsApproving(true);
-
-      // Update approval status
-      const { error: updateError } = await supabase
-        .from('document_extractions')
-        .update({
-          approval_status: 'approved',
-          approval_timestamp: new Date().toISOString(),
-        })
-        .eq('id', extraction.id);
-
-      if (updateError) throw updateError;
-
-      // Refetch to show updated state
+      const result = await approveExtractionAndCreatePurchase(
+        {
+          linkSupplier: (extractionId) => documentSupplierIntegrationService.linkDocumentToSupplier(extractionId, extraction.vendor_name, extraction.vendor_tax_id),
+          approve: async (extractionId, supplierId) => {
+            const rows = (await callRpc('approve_extraction_create_purchase', { p_extraction_id: extractionId, p_supplier_id: supplierId })) as Array<{ purchase_id: string; created: boolean; lines_copied: number; lines_skipped: number }>;
+            const row = rows?.[0];
+            if (!row) throw new Error('La aprobación no devolvió compra');
+            return { purchaseId: row.purchase_id, created: row.created, linesCopied: row.lines_copied, linesSkipped: row.lines_skipped };
+          },
+        },
+        extraction.id,
+      );
+      toast.dismiss(loadingId);
+      if (result.status === 'created') {
+        const omitidas = result.linesSkipped > 0 ? ` ${result.linesSkipped} línea(s) sin importe no se copiaron; siguen en la extracción.` : '';
+        toast.success(`Compra creada y vinculada al proveedor.${omitidas}`);
+      } else if (result.status === 'already_linked') {
+        toast.info('Esta extracción ya tiene compra vinculada. No se ha creado otra.');
+      } else {
+        toast.error(result.message);
+      }
       await refetch();
-      toast.success('Extracción aprobada correctamente');
     } catch (error) {
+      toast.dismiss(loadingId);
       toast.error(`Error al aprobar: ${error instanceof Error ? error.message : 'Desconocido'}`);
     } finally {
       setIsApproving(false);
@@ -80,68 +100,6 @@ export function ExtractionDetailScreen() {
       toast.info('Extracción rechazada');
     } catch (error) {
       toast.error(`Error al rechazar: ${error instanceof Error ? error.message : 'Desconocido'}`);
-    } finally {
-      setIsApproving(false);
-    }
-  };
-
-  const handleCreatePurchase = async () => {
-    if (!extraction) return;
-    try {
-      setIsApproving(true);
-      toast.loading('Creando proveedor y compra...');
-
-      // Step 1: Link or create supplier
-      const supplierResult = await documentSupplierIntegrationService.linkDocumentToSupplier(
-        extraction.id,
-        extraction.vendor_name,
-        extraction.vendor_tax_id,
-      );
-
-      if (supplierResult.conflict) {
-        toast.error(`Proveedor ambiguo: ${supplierResult.conflict}. Revisa manualmente.`);
-        setIsApproving(false);
-        return;
-      }
-
-      // Step 2: Create purchase with lines
-      const purchaseId = await documentSupplierIntegrationService.createPurchaseFromExtraction(
-        supplierResult.supplierId,
-        extraction.id,
-      );
-
-      // Step 3: Link document to purchase
-      const { error: linkError } = await supabase
-        .from('documents')
-        .update({ purchase_id: purchaseId })
-        .eq('id', extraction.documents?.id);
-
-      if (linkError) throw linkError;
-
-      // Step 4: Mark extraction as integrated
-      const { error: markError } = await supabase
-        .from('document_extractions')
-        .update({
-          approval_status: 'approved',
-          approval_timestamp: new Date().toISOString(),
-        })
-        .eq('id', extraction.id);
-
-      if (markError) throw markError;
-
-      // Success
-      toast.success(
-        `Compra creada correctamente. ` +
-        `Proveedor: ${supplierResult.isNew ? 'nuevo' : 'existente'}, ` +
-        `ID Compra: ${purchaseId}`
-      );
-
-      // Refetch to show updated state
-      await refetch();
-    } catch (error) {
-      toast.error(
-        `Error al crear compra: ${error instanceof Error ? error.message : 'Desconocido'}`
-      );
     } finally {
       setIsApproving(false);
     }
@@ -506,22 +464,13 @@ export function ExtractionDetailScreen() {
                 Rechazar
               </Button>
             )}
-            {(extraction.approval_status as any) !== 'approved' && (
+            {profile?.role_id === 'admin' && (extraction.approval_status as any) !== 'rejected' && !(extraction as any).purchase_id && (
               <Button
                 size="sm"
                 disabled={isApproving}
-                onClick={handleApprove}
+                onClick={handleApproveAndCreatePurchase}
               >
-                Aprobar
-              </Button>
-            )}
-            {(extraction.approval_status as any) === 'approved' && (
-              <Button
-                size="sm"
-                disabled={isApproving}
-                onClick={handleCreatePurchase}
-              >
-                {isApproving ? 'Creando...' : 'Crear Compra'}
+                {isApproving ? 'Procesando...' : 'Aprobar y crear compra'}
               </Button>
             )}
           </div>

@@ -240,7 +240,7 @@ export const documentsService = {
     return data;
   },
 
-  async processDocument(documentId: string, aiModelId: string = 'claude-haiku-4-5-20251001') {
+  async processDocument(documentId: string, aiModelId: string = 'claude-haiku-5-5') {
     // Call Edge Function to process document with IA
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 

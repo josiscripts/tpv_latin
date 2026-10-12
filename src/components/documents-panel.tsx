@@ -52,7 +52,7 @@ export function DocumentsPanel({ saleId, purchaseId, title = 'Documentos' }: Doc
       toast.success('Documento subido correctamente');
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (error) {
-      toast.error('Error al subir documento');
+      toast.error(`Error al subir documento: ${(error as { message?: string })?.message ?? 'Desconocido'}`);
     }
   };
 

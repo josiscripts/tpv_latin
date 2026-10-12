@@ -144,35 +144,6 @@ export function useProcessDocument() {
   });
 }
 
-export function useProcessDocumentWithIntegration() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ docId, aiModelId }: { docId: string; aiModelId: string }) => {
-      // Import here to avoid circular dependency
-      const { documentsWorkflowService } = await import('@/services/documents-workflow.service');
-
-      // Step 1: Process document with IA
-      const processResult = await documentsService.processDocument(docId, aiModelId);
-
-      // Step 2: Complete integration workflow
-      // IMPORTANT: Always attempt integration, even if document was already processed
-      // A document may have been processed before but integration might have failed or not run
-      const integrationResult = await documentsWorkflowService.completeIntegrationAfterProcessing(
-        docId,
-      );
-
-      return {
-        ...processResult,
-        integration: integrationResult,
-      };
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: DOCUMENTS_KEY });
-    },
-  });
-}
-
 export function useExtractionById(extractionId: string | null) {
   return useQuery({
     queryKey: ['extraction', extractionId],

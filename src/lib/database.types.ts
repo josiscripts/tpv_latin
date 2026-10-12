@@ -143,6 +143,10 @@ export type Database = {
       }
       document_extractions: {
         Row: {
+          approval_status: string | null
+          approval_timestamp: string | null
+          purchase_claimed_at: string | null
+          purchase_id: string | null
           attempt_number: number | null
           confidence_invoice: number | null
           confidence_lines: number | null
@@ -173,6 +177,10 @@ export type Database = {
           vendor_tax_id: string | null
         }
         Insert: {
+          approval_status?: string | null
+          approval_timestamp?: string | null
+          purchase_claimed_at?: string | null
+          purchase_id?: string | null
           attempt_number?: number | null
           confidence_invoice?: number | null
           confidence_lines?: number | null
@@ -203,6 +211,10 @@ export type Database = {
           vendor_tax_id?: string | null
         }
         Update: {
+          approval_status?: string | null
+          approval_timestamp?: string | null
+          purchase_claimed_at?: string | null
+          purchase_id?: string | null
           attempt_number?: number | null
           confidence_invoice?: number | null
           confidence_lines?: number | null
@@ -1259,5 +1271,3 @@ export const Constants = {
   },
 } as const
 
-A new version of Supabase CLI is available: v2.120.0 (currently installed v2.117.0)
-We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli
