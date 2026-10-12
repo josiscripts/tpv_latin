@@ -44,6 +44,29 @@ export function useReceivePurchase() {
   });
 }
 
+export function useRejectPurchase() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ purchaseId, reason }: { purchaseId: string; reason?: string }) =>
+      purchasesService.rejectPurchase(purchaseId, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: PURCHASES_KEY });
+    },
+  });
+}
+
+export function useDeletePurchase() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (purchaseId: string) => purchasesService.deletePurchase(purchaseId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: PURCHASES_KEY });
+    },
+  });
+}
+
 export function useSearchPurchases(query: string) {
   return useQuery({
     queryKey: [...PURCHASES_KEY, 'search', query],

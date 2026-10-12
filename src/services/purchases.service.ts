@@ -6,6 +6,16 @@ type Purchase = Database['public']['Tables']['purchases']['Row'];
 type PurchaseInsert = Database['public']['Tables']['purchases']['Insert'];
 type PurchaseLineInsert = Database['public']['Tables']['purchase_lines']['Insert'];
 
+// Funciones RPC de compras: no están en los tipos generados; se tipan aquí.
+// La autorización y las dependencias se comprueban en la base de datos.
+async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<{ data: T; error: { message: string } | null }> {
+  const client = supabase as unknown as {
+    rpc: (name: string, a: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
+  };
+  const res = await client.rpc(fn, args);
+  return { data: res.data as T, error: res.error };
+}
+
 export const purchasesService = {
   async listAll() {
     const { data, error } = await supabase
@@ -155,59 +165,31 @@ export const purchasesService = {
     return { purchase: createdPurchase, lines: linesData };
   },
 
+  // Recibir: transición de estado en la base de datos (idempotente). No modifica stock.
   async receivePurchase(purchaseId: string) {
-    // Obtener la compra y sus líneas
-    const purchase = await this.getById(purchaseId);
+    const { data, error } = await rpc<{ changed: boolean; status: string }>('receive_purchase', {
+      p_purchase_id: purchaseId,
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
 
-    // Crear movimientos de stock para cada línea
-    for (const line of purchase.purchase_lines || []) {
-      const productId = typeof line.product_id === 'string'
-        ? line.product_id
-        : line.products?.id;
+  // Rechazar: estado 'rejected' con motivo opcional. No borra la compra ni toca inventario.
+  async rejectPurchase(purchaseId: string, reason?: string) {
+    const { data, error } = await rpc<{ changed: boolean; status: string }>('reject_purchase', {
+      p_purchase_id: purchaseId,
+      p_reason: reason?.trim() || null,
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
 
-      if (productId) {
-        const product = await supabase
-          .from('products')
-          .select('stock, cost_price')
-          .eq('id', productId)
-          .single();
-
-        if (product.data) {
-          const newStock = Number(product.data.stock) + Number(line.quantity);
-
-          // Crear movimiento
-          await stockService.createMovement({
-            product_id: productId,
-            movement_type: 'purchase',
-            quantity: Number(line.quantity),
-            previous_stock: Number(product.data.stock),
-            resulting_stock: newStock,
-            reference_type: 'purchase',
-            reference_id: purchaseId,
-            source: 'latin_pos',
-          });
-
-          // Actualizar stock
-          await supabase
-            .from('products')
-            .update({
-              stock: newStock,
-              cost_price: Number(line.unit_cost),
-            })
-            .eq('id', productId);
-        }
-      }
-    }
-
-    // Marcar compra como recibida
-    const { data, error } = await supabase
-      .from('purchases')
-      .update({ status: 'received' })
-      .eq('id', purchaseId)
-      .select()
-      .single();
-
-    if (error) throw error;
+  // Eliminar: solo administradores; bloqueado si hay documentos, extracciones, movimientos o recepción.
+  async deletePurchase(purchaseId: string) {
+    const { data, error } = await rpc<{ deleted: boolean }>('delete_purchase', {
+      p_purchase_id: purchaseId,
+    });
+    if (error) throw new Error(error.message);
     return data;
   },
 

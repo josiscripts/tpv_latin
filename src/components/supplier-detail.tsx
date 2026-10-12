@@ -3,11 +3,13 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { ArrowLeft, Edit2, Save, X, Upload } from 'lucide-react';
+import { ArrowLeft, Edit2, Save, X, Upload, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useSupplier, useUpdateSupplier, usePurchaseHistory, usePurchaseStats } from '@/hooks/useSuppliers';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { useSupplier, useUpdateSupplier, useDeleteSupplier, usePurchaseHistory, usePurchaseStats } from '@/hooks/useSuppliers';
+import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { money } from './pos-ui';
 import type { Database } from '@/lib/database.types';
@@ -33,6 +35,22 @@ export function SupplierDetail({ supplierId, onBack }: { supplierId: string; onB
   const { data: history = [] } = usePurchaseHistory(supplierId);
   const { data: stats } = usePurchaseStats(supplierId);
   const updateSupplier = useUpdateSupplier();
+  const deleteSupplier = useDeleteSupplier();
+  const { profile } = useAuth();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const isAdmin = profile?.role_id === 'admin';
+
+  const handleDeleteSupplier = async () => {
+    try {
+      await deleteSupplier.mutateAsync(supplierId);
+      toast.success('Proveedor eliminado');
+      onBack();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'No se pudo eliminar el proveedor');
+    } finally {
+      setConfirmDelete(false);
+    }
+  };
 
   const form = useForm<SupplierEditData>({
     resolver: zodResolver(supplierEditSchema),
@@ -149,14 +167,44 @@ export function SupplierDetail({ supplierId, onBack }: { supplierId: string; onB
           <ArrowLeft className="w-4 h-4" />
           Volver
         </button>
-        <button
-          onClick={() => setIsEditing(!isEditing)}
-          className="flex items-center gap-2 text-sm px-3 py-1 rounded hover:bg-muted"
-        >
-          {isEditing ? <X className="w-4 h-4" /> : <Edit2 className="w-4 h-4" />}
-          {isEditing ? 'Cancelar' : 'Editar'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsEditing(!isEditing)}
+            className="flex items-center gap-2 text-sm px-3 py-1 rounded hover:bg-muted"
+          >
+            {isEditing ? <X className="w-4 h-4" /> : <Edit2 className="w-4 h-4" />}
+            {isEditing ? 'Cancelar' : 'Editar'}
+          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              disabled={deleteSupplier.isPending}
+              className="flex items-center gap-2 text-sm px-3 py-1 rounded text-red-600 hover:bg-red-50"
+            >
+              <Trash2 className="w-4 h-4" />
+              Eliminar proveedor
+            </button>
+          )}
+        </div>
       </div>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Seguro que quieres eliminar este proveedor?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se quitará su ficha y la información asociada que pueda eliminarse de forma segura. Esta acción no se puede deshacer.
+              Si el proveedor tiene compras, productos o gastos, el sistema lo bloqueará y te dirá cuáles.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No, cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteSupplier} disabled={deleteSupplier.isPending}>
+              Sí, eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Main Info */}
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
