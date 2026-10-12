@@ -1,13 +1,14 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
-import { Download, Trash2, Search, Upload, Edit2, Zap, AlertCircle, Eye, FileText, Truck, Files, BarChart3 } from 'lucide-react';
+import { Download, Trash2, Search, Upload, Edit2, Zap, AlertCircle, Eye, FileText, Truck, Files, BarChart3, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PageHeader } from './app-shell';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
-  useDocuments,
+  useDocumentsSearch,
   useDocumentsByDateRange,
   useDeleteDocument,
   useUploadDocument,
@@ -27,6 +28,8 @@ type DocumentType = 'invoice' | 'delivery_note';
 
 const ALLOWED_FORMATS = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'];
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+const PAGE_SIZE = 20;
+const SEARCH_PAGE_SIZE_MAX = 100; // límite de search_documents por petición (ZIP recorre todas las páginas)
 
 export function DocumentsScreen() {
   const { user } = useAuth();
@@ -37,6 +40,8 @@ export function DocumentsScreen() {
   const [fromDate, setFromDate] = useState<Date | null>(null);
   const [toDate, setToDate] = useState<Date | null>(null);
   const [searchActive, setSearchActive] = useState(false);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
@@ -51,38 +56,62 @@ export function DocumentsScreen() {
   const processDocument = useProcessDocument();
   const [processingDocId, setProcessingDocId] = useState<string | null>(null);
 
-  // Fetch documents based on filters
-  const filterObj = useMemo(() => {
-    if (!searchActive || (!fromDate && !toDate)) {
-      return documentType === 'all' ? {} : { documentType: documentType as DocumentType };
-    }
+  // Búsqueda y filtros en servidor, paginados. Las fechas solo se aplican al pulsar «Buscar».
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const searchParams = useMemo(() => ({
+    query: debouncedSearch.trim() || undefined,
+    documentType: documentType === 'all' ? undefined : documentType,
+    from: searchActive && fromDate ? fromDate : undefined,
+    to: searchActive && toDate ? toDate : undefined,
+    page,
+    pageSize: PAGE_SIZE,
+  }), [debouncedSearch, documentType, fromDate, toDate, searchActive, page]);
 
-    const filter: any = {};
-    if (documentType !== 'all') {
-      filter.documentType = documentType;
-    }
-    if (fromDate) filter.fromDate = fromDate;
-    if (toDate) filter.toDate = toDate;
-    return filter;
-  }, [documentType, fromDate, toDate, searchActive]);
+  const { data: searchResult, isLoading } = useDocumentsSearch(searchParams);
+  const documents = searchResult?.items ?? [];
+  const total = searchResult?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const hasActiveSearch = debouncedSearch.trim().length > 0;
 
-  const { data: documents = [], isLoading } = useDocuments(
-    Object.keys(filterObj).length > 0 ? filterObj : undefined
-  );
+  // Cualquier cambio de búsqueda o filtro vuelve a la primera página
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, documentType, fromDate, toDate, searchActive]);
 
-  // Handle search param for auto-selection from global search
+  // Si la lista se reduce y la página actual ya no existe, volver a la última válida
+  useEffect(() => {
+    if (searchResult && page > totalPages) setPage(totalPages);
+  }, [searchResult, page, totalPages]);
+
+  // Abrir un documento desde la búsqueda global (?selected=id), esté o no en la página actual
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const selectedId = params.get('selected');
-    if (selectedId && documents.length > 0) {
-      const doc = documents.find(d => d.id === selectedId);
-      if (doc) {
+    if (!selectedId) return;
+    documentsService
+      .getById(selectedId)
+      .then((doc) => {
         setViewerDocument(doc);
         setViewerOpen(true);
         window.history.replaceState({}, '', '/documents');
-      }
+      })
+      .catch(() => {
+        window.history.replaceState({}, '', '/documents');
+      });
+  }, []);
+
+  // Recorre todas las páginas de la búsqueda activa (para el ZIP)
+  const fetchAllMatches = async () => {
+    const all: typeof documents = [];
+    let p = 1;
+    while (all.length < total || p === 1) {
+      const res = await documentsService.search({ ...searchParams, page: p, pageSize: SEARCH_PAGE_SIZE_MAX });
+      all.push(...res.items);
+      if (res.items.length < SEARCH_PAGE_SIZE_MAX) break;
+      p += 1;
     }
-  }, [documents]);
+    return all;
+  };
 
   const typeLabel = {
     invoice: 'Facturas',
@@ -90,15 +119,13 @@ export function DocumentsScreen() {
     all: 'Todos',
   };
 
-  const counts = useMemo(() => {
-    const filtered = documents || [];
-    return {
-      invoices: filtered.filter((d) => d.document_type === 'invoice').length,
-      deliveryNotes: filtered.filter((d) => d.document_type === 'delivery_note').length,
-      others: filtered.filter((d) => d.document_type === 'other').length,
-      total: filtered.length,
-    };
-  }, [documents]);
+  // Contadores reales de toda la búsqueda activa (no solo de la página visible)
+  const counts = {
+    invoices: searchResult?.invoices ?? 0,
+    deliveryNotes: searchResult?.delivery_notes ?? 0,
+    others: searchResult?.others ?? 0,
+    total,
+  };
 
   const handleDownloadFile = async (doc: any) => {
     try {
@@ -121,8 +148,9 @@ export function DocumentsScreen() {
 
       const zip = new JSZip();
       const fileMap = new Map<string, number>();
+      const allDocs = await fetchAllMatches();
 
-      for (const doc of documents) {
+      for (const doc of allDocs) {
         try {
           const blob = await documentsService.downloadFile(doc.file_path);
           let fileName = doc.original_name;
@@ -234,6 +262,8 @@ export function DocumentsScreen() {
     setToDate(null);
     setDocumentType('all');
     setSearchActive(false);
+    setSearch('');
+    setPage(1);
   };
 
   const handleProcessDocument = async (docId: string) => {
@@ -298,6 +328,29 @@ export function DocumentsScreen() {
 
       {/* Filters Section */}
       <div className="mb-6 space-y-4 rounded-lg border bg-card p-4">
+        {/* Search */}
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por nombre, proveedor o número de documento..."
+            aria-label="Buscar documentos"
+            className="w-full pl-9 pr-9"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              aria-label="Limpiar búsqueda"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
         {/* Type Tabs */}
         <div className="flex gap-2">
           {(['all', 'invoice', 'delivery_note'] as const).map((type) => (
@@ -346,7 +399,7 @@ export function DocumentsScreen() {
           </Button>
           <Button
             onClick={handleDownloadZip}
-            disabled={documents.length === 0 || isDownloadingZip}
+            disabled={total === 0 || isDownloadingZip}
             variant="outline"
             size="sm"
           >
@@ -394,7 +447,7 @@ export function DocumentsScreen() {
           <div className="p-8 text-center text-gray-500">Cargando documentos...</div>
         ) : documents.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
-            No hay documentos que mostrar
+            {hasActiveSearch ? 'No se encontraron documentos con esa búsqueda' : 'No hay documentos que mostrar'}
           </div>
         ) : (
           <table className="w-full text-sm">
@@ -604,6 +657,38 @@ export function DocumentsScreen() {
           </table>
         )}
       </div>
+
+      {/* Paginación y número real de resultados */}
+      {total > 0 && (
+        <div className="mt-3 flex flex-col gap-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <span className="text-muted-foreground">
+            Mostrando {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} de {total} documento{total === 1 ? '' : 's'}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              aria-label="Página anterior"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="min-w-[5rem] text-center">
+              Página {page} de {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              aria-label="Página siguiente"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Document Viewer Modal */}
       {viewerDocument && (

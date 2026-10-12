@@ -1,5 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { documentsService } from '@/services/documents.service';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { documentsService, type DocumentSearchParams } from '@/services/documents.service';
 
 interface DocumentFilter {
   documentType?: 'invoice' | 'delivery_note';
@@ -15,6 +15,15 @@ export function useDocuments(filter?: DocumentFilter) {
   return useQuery({
     queryKey: [...DOCUMENTS_KEY, 'all', filter],
     queryFn: () => documentsService.listAll(filter),
+  });
+}
+
+// Búsqueda paginada en servidor sobre todos los documentos visibles.
+export function useDocumentsSearch(params: DocumentSearchParams) {
+  return useQuery({
+    queryKey: [...DOCUMENTS_KEY, 'search', params],
+    queryFn: () => documentsService.search(params),
+    placeholderData: keepPreviousData,
   });
 }
 
