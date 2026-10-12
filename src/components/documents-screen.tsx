@@ -12,7 +12,7 @@ import {
   useDeleteDocument,
   useUploadDocument,
   useUpdateDocument,
-  useProcessDocumentWithIntegration,
+  useProcessDocument,
 } from '@/hooks/useDocuments';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
@@ -48,7 +48,7 @@ export function DocumentsScreen() {
   const deleteDocument = useDeleteDocument();
   const uploadDocument = useUploadDocument();
   const updateDocument = useUpdateDocument();
-  const processDocument = useProcessDocumentWithIntegration();
+  const processDocument = useProcessDocument();
   const [processingDocId, setProcessingDocId] = useState<string | null>(null);
 
   // Fetch documents based on filters
@@ -187,7 +187,7 @@ export function DocumentsScreen() {
       toast.success('Documento subido correctamente');
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (error) {
-      toast.error('Error al subir documento');
+      toast.error(`Error al subir documento: ${(error as { message?: string })?.message ?? 'Desconocido'}`);
     }
   };
 
@@ -210,7 +210,7 @@ export function DocumentsScreen() {
       setNewName('');
       setNewDocType('');
     } catch (error) {
-      toast.error('Error al actualizar documento');
+      toast.error(`Error al actualizar documento: ${(error as { message?: string })?.message ?? 'Desconocido'}`);
     }
   };
 
@@ -220,7 +220,7 @@ export function DocumentsScreen() {
         await deleteDocument.mutateAsync(docId);
         toast.success('Documento eliminado');
       } catch (error) {
-        toast.error('Error al eliminar documento');
+        toast.error(`Error al eliminar documento: ${(error as { message?: string })?.message ?? 'Desconocido'}`);
       }
     }
   };
@@ -239,32 +239,14 @@ export function DocumentsScreen() {
   const handleProcessDocument = async (docId: string) => {
     try {
       setProcessingDocId(docId);
-      const aiModelId = preferences?.ai_model_id || 'claude-haiku-4-5-20251001';
+      const aiModelId = preferences?.ai_model_id || 'claude-haiku-5-5';
+      // Solo extracción con IA: no crea compras ni proveedores. La aprobación es manual en la revisión.
       const result = await processDocument.mutateAsync({ docId, aiModelId });
-
-      // Handle idempotent response (already processed) - navigate to review
-      if (result.isIdempotent) {
-        if (result.extraction_id) {
-          toast.info('Documento ya procesado. Abriendo revisión...');
-          navigate({ to: `/documents/extraction/${result.extraction_id}` });
-        } else {
-          toast.warning('Documento procesado pero extracción no encontrada');
-        }
+      if (result.extraction_id) {
+        toast.success(result.isIdempotent ? 'Documento ya procesado. Abriendo revisión...' : 'Extracción guardada. Revísala antes de crear la compra.');
+        navigate({ to: `/documents/extraction/${result.extraction_id}` });
       } else {
-        // Check integration result if available
-        if (result.integration) {
-          if (result.integration.status === 'success') {
-            toast.success('Documento procesado e integrado correctamente');
-          } else if (result.integration.status === 'partial') {
-            const warnings = result.integration.warnings?.join('; ') || 'Advertencias';
-            toast.warning(`Documento procesado con advertencias: ${warnings}`);
-          } else {
-            const errors = result.integration.errors?.join('; ') || 'Error de integración';
-            toast.error(`Integración fallida: ${errors}`);
-          }
-        } else {
-          toast.success('Documento procesado con IA exitosamente');
-        }
+        toast.warning('Documento procesado pero no se encontró la extracción');
       }
     } catch (error) {
       toast.error(`Error al procesar documento: ${error instanceof Error ? error.message : 'Desconocido'}`);
