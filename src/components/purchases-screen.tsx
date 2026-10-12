@@ -6,7 +6,10 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { PageHeader } from "./app-shell";
 import { usePos } from "./pos-context";
-import { usePurchases, useCreatePurchase, useReceivePurchase, useSearchPurchases, useSearchPurchasesByProduct } from "@/hooks/usePurchases";
+import { usePurchases, useCreatePurchase, useReceivePurchase, useRejectPurchase, useDeletePurchase, useSearchPurchases, useSearchPurchasesByProduct } from "@/hooks/usePurchases";
+import { useAuth } from "@/hooks/useAuth";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { useSuppliers } from "@/hooks/useSuppliers";
 import { useProducts } from "@/hooks/useProducts";
 import { money } from "./pos-ui";
@@ -210,6 +213,13 @@ export function PurchasesScreen() {
   );
   const { data: allPurchases = [], isLoading: isLoadingAll } = usePurchases();
   const receivePurchase = useReceivePurchase();
+  const rejectPurchase = useRejectPurchase();
+  const deletePurchase = useDeletePurchase();
+  const { profile } = useAuth();
+  const isAdmin = profile?.role_id === "admin";
+  const [rejectTarget, setRejectTarget] = useState<{ id: string; invoice: string | null } | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; invoice: string | null } | null>(null);
 
   const isLoading = isLoadingSupplier || isLoadingProduct || isLoadingAll;
   const purchases = searchQuery
@@ -232,10 +242,35 @@ export function PurchasesScreen() {
 
   const handleReceive = async (purchaseId: string) => {
     try {
-      await receivePurchase.mutateAsync(purchaseId);
-      toast.success("Compra recibida y stock actualizado");
+      const res = await receivePurchase.mutateAsync(purchaseId);
+      toast.success(res?.changed === false ? "Esta compra ya estaba recibida" : "Compra marcada como recibida");
     } catch (error) {
-      toast.error("Error al recibir compra");
+      toast.error(`No se pudo recibir la compra: ${error instanceof Error ? error.message : "Error desconocido"}`);
+    }
+  };
+
+  const handleConfirmReject = async () => {
+    if (!rejectTarget) return;
+    try {
+      await rejectPurchase.mutateAsync({ purchaseId: rejectTarget.id, reason: rejectReason });
+      toast.success("Compra rechazada");
+    } catch (error) {
+      toast.error(`No se pudo rechazar la compra: ${error instanceof Error ? error.message : "Error desconocido"}`);
+    } finally {
+      setRejectTarget(null);
+      setRejectReason("");
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await deletePurchase.mutateAsync(deleteTarget.id);
+      toast.success("Compra eliminada");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo eliminar la compra");
+    } finally {
+      setDeleteTarget(null);
     }
   };
 
@@ -363,20 +398,43 @@ export function PurchasesScreen() {
                     }`}>
                       {purchase.status === 'draft' ? 'Borrador' :
                        purchase.status === 'received' ? 'Recibida' :
-                       purchase.status === 'partial' ? 'Parcial' : 'Cancelada'}
+                       purchase.status === 'partial' ? 'Parcial' :
+                       purchase.status === 'rejected' ? 'Rechazada' : 'Cancelada'}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-center">
-                    {purchase.status === 'draft' && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleReceive(purchase.id)}
-                        disabled={receivePurchase.isPending}
-                      >
-                        Recibir
-                      </Button>
-                    )}
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {(purchase.status === 'draft' || purchase.status === 'partial') && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleReceive(purchase.id)}
+                            disabled={receivePurchase.isPending}
+                          >
+                            Recibir
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => { setRejectReason(""); setRejectTarget({ id: purchase.id, invoice: purchase.invoice_number }); }}
+                            disabled={rejectPurchase.isPending}
+                          >
+                            Rechazar
+                          </Button>
+                        </>
+                      )}
+                      {isAdmin && purchase.status !== 'received' && (
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => setDeleteTarget({ id: purchase.id, invoice: purchase.invoice_number })}
+                          disabled={deletePurchase.isPending}
+                        >
+                          Eliminar
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))
@@ -384,6 +442,53 @@ export function PurchasesScreen() {
           </tbody>
         </table>
       </div>
+
+      {/* Rechazar compra: motivo opcional */}
+      <AlertDialog open={rejectTarget !== null} onOpenChange={(open) => { if (!open) setRejectTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Rechazar esta compra?</AlertDialogTitle>
+            <AlertDialogDescription>
+              La compra{rejectTarget?.invoice ? ` ${rejectTarget.invoice}` : ""} quedará como rechazada. No se borra ni se modifica el inventario.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="reject-reason">Motivo (opcional)</Label>
+            <Textarea
+              id="reject-reason"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              maxLength={500}
+              placeholder="Por ejemplo: precio no acordado"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No, cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmReject} disabled={rejectPurchase.isPending}>
+              Sí, rechazar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Eliminar compra: confirmación explícita (solo administradores) */}
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar esta compra?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.invoice ? `Compra ${deleteTarget.invoice}. ` : ""}
+              Esta acción no se puede deshacer. Si la compra tiene documentos, extracciones o movimientos de stock, el sistema lo impedirá y no borrará nada.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No, cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDelete} disabled={deletePurchase.isPending}>
+              Sí, eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

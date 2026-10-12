@@ -192,6 +192,16 @@ export const suppliersService = {
     };
   },
 
+  // Eliminar proveedor: solo administradores; la base de datos bloquea si tiene compras, productos o gastos.
+  async deleteSupplier(supplierId: string) {
+    const client = supabase as unknown as {
+      rpc: (fn: string, a: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
+    };
+    const { data, error } = await client.rpc('delete_supplier', { p_supplier_id: supplierId });
+    if (error) throw new Error(error.message);
+    return data as { deleted: boolean };
+  },
+
   async create(supplier: SupplierInsert) {
     const { data, error } = await supabase
       .from('suppliers')

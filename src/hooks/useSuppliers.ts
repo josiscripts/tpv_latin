@@ -25,6 +25,17 @@ export function useCreateSupplier() {
   });
 }
 
+export function useDeleteSupplier() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (supplierId: string) => suppliersService.deleteSupplier(supplierId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: SUPPLIERS_KEY });
+    },
+  });
+}
+
 export function useSupplier(id: string) {
   return useQuery({
     queryKey: [...SUPPLIERS_KEY, id],
