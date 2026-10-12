@@ -17,19 +17,26 @@ export type ApprovalResult =
   | { status: 'already_linked'; purchaseId: string; supplierId: string }
   | { status: 'error'; message: string };
 
+// Si el administrador eligió el proveedor en la revisión (p. ej. la IA no lo detectó),
+// se usa ese proveedor y no se intenta deducirlo del documento.
 export async function approveExtractionAndCreatePurchase(
   deps: ApprovalDeps,
   extractionId: string,
+  manualSupplierId?: string,
 ): Promise<ApprovalResult> {
   let supplierId: string;
-  try {
-    const supplier = await deps.linkSupplier(extractionId);
-    if (supplier.conflict) {
-      return { status: 'error', message: `Proveedor ambiguo: ${supplier.conflict}. Revisar manualmente.` };
+  if (manualSupplierId) {
+    supplierId = manualSupplierId;
+  } else {
+    try {
+      const supplier = await deps.linkSupplier(extractionId);
+      if (supplier.conflict) {
+        return { status: 'error', message: `Proveedor ambiguo: ${supplier.conflict}. Revisar manualmente.` };
+      }
+      supplierId = supplier.supplierId;
+    } catch (err) {
+      return { status: 'error', message: `No se pudo vincular el proveedor: ${messageOf(err)}` };
     }
-    supplierId = supplier.supplierId;
-  } catch (err) {
-    return { status: 'error', message: `No se pudo vincular el proveedor: ${messageOf(err)}` };
   }
 
   try {

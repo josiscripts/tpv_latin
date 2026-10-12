@@ -84,6 +84,27 @@ const tests: Array<[string, () => Promise<void>]> = [
     assert.equal(r.status, 'created');
     assert.ok(r.status === 'created' && r.linesCopied === 0 && r.linesSkipped === 2);
   }],
+  ['proveedor elegido en la revisión: no se intenta deducirlo del documento', async () => {
+    const { deps, calls } = makeAtomicBackend();
+    const r = await approveExtractionAndCreatePurchase(
+      { ...deps, linkSupplier: async () => { throw new Error('vendor name required'); } },
+      'ext-manual',
+      'proveedor-elegido',
+    );
+    assert.equal(r.status, 'created');
+    assert.equal(calls.linkSupplier, 0);
+    assert.ok(r.status === 'created' && r.supplierId === 'proveedor-elegido');
+  }],
+  ['sin proveedor ni elección: error claro y no se crea compra', async () => {
+    const { deps, purchases } = makeAtomicBackend();
+    const r = await approveExtractionAndCreatePurchase(
+      { ...deps, linkSupplier: async () => { throw new Error('vendor name required'); } },
+      'ext-sin-proveedor',
+    );
+    assert.equal(r.status, 'error');
+    assert.match(r.status === 'error' ? r.message : '', /vendor name required/);
+    assert.equal(purchases.size, 0);
+  }],
 ];
 
 let failed = 0;
