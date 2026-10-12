@@ -12,7 +12,61 @@ interface DocumentFilter {
   purchaseId?: string;
 }
 
+export type DocumentSearchStatus = 'uploaded' | 'processing' | 'processed' | 'error';
+
+export interface DocumentSearchParams {
+  query?: string | undefined;
+  documentType?: 'invoice' | 'delivery_note' | undefined;
+  status?: DocumentSearchStatus | undefined;
+  from?: Date | undefined;
+  to?: Date | undefined;
+  page: number;
+  pageSize: number;
+}
+
+export interface DocumentSearchResult {
+  total: number;
+  invoices: number;
+  delivery_notes: number;
+  others: number;
+  items: Document[];
+}
+
+// La función search_documents no está en los tipos generados; se tipa aquí.
+// Se ejecuta como el usuario (SECURITY INVOKER): RLS limita los documentos visibles.
+export async function searchDocumentsRpc(params: DocumentSearchParams): Promise<DocumentSearchResult> {
+  const client = supabase as unknown as {
+    rpc: (fn: string, a: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
+  };
+  const startOfDay = params.from ? new Date(params.from) : undefined;
+  if (startOfDay) startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = params.to ? new Date(params.to) : undefined;
+  if (endOfDay) endOfDay.setHours(23, 59, 59, 999);
+  const { data, error } = await client.rpc('search_documents', {
+    p_query: params.query?.trim() || null,
+    p_document_type: params.documentType ?? null,
+    p_status: params.status ?? null,
+    p_from: startOfDay ? startOfDay.toISOString() : null,
+    p_to: endOfDay ? endOfDay.toISOString() : null,
+    p_limit: params.pageSize,
+    p_offset: (params.page - 1) * params.pageSize,
+  });
+  if (error) throw new Error(error.message);
+  const raw = (data ?? {}) as Partial<DocumentSearchResult>;
+  return {
+    total: Number(raw.total ?? 0),
+    invoices: Number(raw.invoices ?? 0),
+    delivery_notes: Number(raw.delivery_notes ?? 0),
+    others: Number(raw.others ?? 0),
+    items: (raw.items ?? []) as Document[],
+  };
+}
+
 export const documentsService = {
+  async search(params: DocumentSearchParams) {
+    return searchDocumentsRpc(params);
+  },
+
   async listAll(filter?: DocumentFilter) {
     let query = supabase
       .from('documents')
