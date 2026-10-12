@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { ChevronLeft, Download, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useExtractionById } from '@/hooks/useDocuments';
 import { documentsService } from '@/services/documents.service';
 import { documentSupplierIntegrationService } from '@/services/document-supplier-integration.service';
+import { suppliersService } from '@/services/suppliers.service';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { approveExtractionAndCreatePurchase } from '@/services/extraction-approval.service';
@@ -24,6 +25,17 @@ export function ExtractionDetailScreen() {
   const { data: extraction, isLoading, error, refetch } = useExtractionById(id);
   const { profile } = useAuth();
   const [isApproving, setIsApproving] = useState(false);
+  // Proveedor elegido a mano cuando la IA no detectó el nombre en el documento.
+  const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
+  const [manualSupplierId, setManualSupplierId] = useState('');
+  const [newSupplierName, setNewSupplierName] = useState('');
+
+  useEffect(() => {
+    suppliersService
+      .listActive()
+      .then((rows) => setSuppliers(rows.map((s) => ({ id: s.id, name: s.name }))))
+      .catch((err) => toast.error(`No se pudieron cargar los proveedores: ${err instanceof Error ? err.message : 'Desconocido'}`));
+  }, []);
 
   const handleDownload = async () => {
     try {
@@ -46,9 +58,26 @@ export function ExtractionDetailScreen() {
 
   const handleApproveAndCreatePurchase = async () => {
     if (!extraction) return;
+    const vendorMissing = !extraction.vendor_name?.trim();
+    if (vendorMissing && !manualSupplierId && !newSupplierName.trim()) {
+      toast.error('Falta el proveedor: elige uno existente o escribe el nombre de uno nuevo.');
+      return;
+    }
     setIsApproving(true);
-    const loadingId = toast.loading('Creando proveedor y compra...');
+    const loadingId = toast.loading('Creando compra...');
     try {
+      let supplierChoice: string | undefined;
+      if (vendorMissing) {
+        if (manualSupplierId) {
+          supplierChoice = manualSupplierId;
+        } else {
+          // Reutiliza un proveedor con el mismo nombre si existe; si no, lo crea (solo al aprobar).
+          const name = newSupplierName.trim();
+          const similar = await suppliersService.findByNameSimilarity(name);
+          const existing = similar.find((s) => s.name.trim().toLowerCase() === name.toLowerCase());
+          supplierChoice = existing ? existing.id : (await suppliersService.create({ name, active: true })).id;
+        }
+      }
       const result = await approveExtractionAndCreatePurchase(
         {
           linkSupplier: (extractionId) => documentSupplierIntegrationService.linkDocumentToSupplier(extractionId, extraction.vendor_name, extraction.vendor_tax_id),
@@ -60,6 +89,7 @@ export function ExtractionDetailScreen() {
           },
         },
         extraction.id,
+        supplierChoice,
       );
       toast.dismiss(loadingId);
       if (result.status === 'created') {
@@ -426,6 +456,35 @@ export function ExtractionDetailScreen() {
             estos datos en operaciones comerciales. La confianza indicada es un estimado, no una garantía de exactitud.
           </p>
         </div>
+
+        {/* Proveedor no detectado: se elige o se escribe antes de aprobar */}
+        {!extraction.vendor_name?.trim() && (extraction.approval_status as any) !== 'approved' && (
+          <div className="bg-amber-50 border border-amber-300 rounded-lg p-4 space-y-3">
+            <h3 className="font-semibold text-sm">Proveedor no detectado</h3>
+            <p className="text-xs text-muted-foreground">
+              La IA no encontró el nombre del proveedor en este documento. Elige un proveedor existente o escribe el nombre de uno nuevo.
+              No se crea nada hasta que pulses «Aprobar y crear compra».
+            </p>
+            <select
+              value={manualSupplierId}
+              onChange={(e) => setManualSupplierId(e.target.value)}
+              disabled={!!newSupplierName.trim()}
+              className="w-full border rounded-md p-2 text-sm bg-background"
+            >
+              <option value="">— Elegir proveedor existente —</option>
+              {suppliers.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+            <input
+              value={newSupplierName}
+              onChange={(e) => setNewSupplierName(e.target.value)}
+              disabled={!!manualSupplierId}
+              placeholder="o nombre de proveedor nuevo"
+              className="w-full border rounded-md p-2 text-sm bg-background"
+            />
+          </div>
+        )}
 
         {/* Estado de Aprobación */}
         <div className="bg-card border rounded-lg p-4">
