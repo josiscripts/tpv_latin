@@ -20,7 +20,7 @@ import { useUserPreferences } from '@/hooks/useUserPreferences';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { documentsService } from '@/services/documents.service';
+import { documentsService, type DocumentSearchStatus } from '@/services/documents.service';
 import { DocumentViewerModal } from './document-viewer-modal';
 import { toast } from 'sonner';
 
@@ -42,6 +42,7 @@ export function DocumentsScreen() {
   const [searchActive, setSearchActive] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [documentStatus, setDocumentStatus] = useState<DocumentSearchStatus | 'all'>('all');
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
@@ -61,11 +62,12 @@ export function DocumentsScreen() {
   const searchParams = useMemo(() => ({
     query: debouncedSearch.trim() || undefined,
     documentType: documentType === 'all' ? undefined : documentType,
+    status: documentStatus === 'all' ? undefined : documentStatus,
     from: searchActive && fromDate ? fromDate : undefined,
     to: searchActive && toDate ? toDate : undefined,
     page,
     pageSize: PAGE_SIZE,
-  }), [debouncedSearch, documentType, fromDate, toDate, searchActive, page]);
+  }), [debouncedSearch, documentType, documentStatus, fromDate, toDate, searchActive, page]);
 
   const { data: searchResult, isLoading } = useDocumentsSearch(searchParams);
   const documents = searchResult?.items ?? [];
@@ -76,7 +78,7 @@ export function DocumentsScreen() {
   // Cualquier cambio de búsqueda o filtro vuelve a la primera página
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, documentType, fromDate, toDate, searchActive]);
+  }, [debouncedSearch, documentType, documentStatus, fromDate, toDate, searchActive]);
 
   // Si la lista se reduce y la página actual ya no existe, volver a la última válida
   useEffect(() => {
@@ -263,6 +265,7 @@ export function DocumentsScreen() {
     setDocumentType('all');
     setSearchActive(false);
     setSearch('');
+    setDocumentStatus('all');
     setPage(1);
   };
 
@@ -366,6 +369,23 @@ export function DocumentsScreen() {
               {typeLabel[type]}
             </Button>
           ))}
+        </div>
+
+        {/* Estado del documento */}
+        <div className="max-w-xs">
+          <label className="text-sm font-medium">Estado</label>
+          <Select value={documentStatus} onValueChange={(v) => { setDocumentStatus(v as DocumentSearchStatus | 'all'); }}>
+            <SelectTrigger aria-label="Filtrar por estado">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="uploaded">Subido</SelectItem>
+              <SelectItem value="processing">Procesando</SelectItem>
+              <SelectItem value="processed">Procesado</SelectItem>
+              <SelectItem value="error">Error</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Date Range */}

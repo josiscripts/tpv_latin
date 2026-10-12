@@ -12,9 +12,12 @@ interface DocumentFilter {
   purchaseId?: string;
 }
 
+export type DocumentSearchStatus = 'uploaded' | 'processing' | 'processed' | 'error';
+
 export interface DocumentSearchParams {
   query?: string | undefined;
   documentType?: 'invoice' | 'delivery_note' | undefined;
+  status?: DocumentSearchStatus | undefined;
   from?: Date | undefined;
   to?: Date | undefined;
   page: number;
@@ -42,6 +45,7 @@ export async function searchDocumentsRpc(params: DocumentSearchParams): Promise<
   const { data, error } = await client.rpc('search_documents', {
     p_query: params.query?.trim() || null,
     p_document_type: params.documentType ?? null,
+    p_status: params.status ?? null,
     p_from: startOfDay ? startOfDay.toISOString() : null,
     p_to: endOfDay ? endOfDay.toISOString() : null,
     p_limit: params.pageSize,
