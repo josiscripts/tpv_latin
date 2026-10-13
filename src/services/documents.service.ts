@@ -13,11 +13,18 @@ interface DocumentFilter {
 }
 
 export type DocumentSearchStatus = 'uploaded' | 'processing' | 'processed' | 'error';
+export type DocumentSort = 'custom' | 'doc_date_desc' | 'doc_date_asc' | 'upload_desc' | 'upload_asc';
+
+// Fecha que se muestra: la corregida a mano si existe; si no, la de la IA o la introducida al subir.
+export function effectiveDocumentDate(doc: { document_date_manual?: string | null; document_date?: string | null; created_at: string }): string {
+  return doc.document_date_manual ?? doc.document_date ?? doc.created_at.slice(0, 10);
+}
 
 export interface DocumentSearchParams {
   query?: string | undefined;
   documentType?: 'invoice' | 'delivery_note' | undefined;
   status?: DocumentSearchStatus | undefined;
+  sort?: DocumentSort | undefined;
   from?: Date | undefined;
   to?: Date | undefined;
   page: number;
@@ -46,6 +53,7 @@ export async function searchDocumentsRpc(params: DocumentSearchParams): Promise<
     p_query: params.query?.trim() || null,
     p_document_type: params.documentType ?? null,
     p_status: params.status ?? null,
+    p_sort: params.sort ?? 'custom',
     p_from: startOfDay ? startOfDay.toISOString() : null,
     p_to: endOfDay ? endOfDay.toISOString() : null,
     p_limit: params.pageSize,
@@ -233,6 +241,35 @@ export const documentsService = {
 
     if (error) throw error;
     return data;
+  },
+
+  // Guardar nombre, tipo y fecha en una sola operación (RPC con validación y permisos en la base de datos).
+  async updateDocumentDetails(docId: string, details: { name: string; type: 'invoice' | 'delivery_note' | 'other'; date: string }) {
+    const client = supabase as unknown as {
+      rpc: (fn: string, a: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
+    };
+    const { data, error } = await client.rpc('update_document_details', {
+      p_document_id: docId,
+      p_name: details.name,
+      p_type: details.type,
+      p_date: details.date,
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  // Mover una posición arriba o abajo en el orden global. expectedPosition evita movimientos dobles.
+  async moveDocument(docId: string, direction: 'up' | 'down', expectedPosition: number) {
+    const client = supabase as unknown as {
+      rpc: (fn: string, a: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
+    };
+    const { data, error } = await client.rpc('move_document', {
+      p_document_id: docId,
+      p_direction: direction,
+      p_expected_position: expectedPosition,
+    });
+    if (error) throw new Error(error.message);
+    return data as { moved: boolean; stale?: boolean; position?: number; total?: number };
   },
 
   async updateDocument(docId: string, updates: { original_name?: string; document_type?: string }) {

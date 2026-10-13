@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
-import { Download, Trash2, Search, Upload, Edit2, Zap, AlertCircle, Eye, FileText, Truck, Files, BarChart3, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Download, Trash2, Search, Upload, Edit2, Zap, AlertCircle, Eye, FileText, Truck, Files, BarChart3, X, ChevronLeft, ChevronRight, ArrowUp, ArrowDown } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,8 @@ import {
   useDocumentsByDateRange,
   useDeleteDocument,
   useUploadDocument,
-  useUpdateDocument,
+  useUpdateDocumentDetails,
+  useMoveDocument,
   useProcessDocument,
 } from '@/hooks/useDocuments';
 import { useAuth } from '@/hooks/useAuth';
@@ -20,11 +21,21 @@ import { useUserPreferences } from '@/hooks/useUserPreferences';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { documentsService, type DocumentSearchStatus } from '@/services/documents.service';
+import { documentsService, effectiveDocumentDate, type DocumentSearchStatus, type DocumentSort } from '@/services/documents.service';
 import { DocumentViewerModal } from './document-viewer-modal';
 import { toast } from 'sonner';
+import type { Database } from '@/lib/database.types';
 
 type DocumentType = 'invoice' | 'delivery_note';
+type DocRow = Database['public']['Tables']['documents']['Row'];
+
+const SORT_OPTIONS: Array<{ value: DocumentSort; label: string }> = [
+  { value: 'custom', label: 'Orden personalizado' },
+  { value: 'doc_date_desc', label: 'Fecha del documento: más reciente primero' },
+  { value: 'doc_date_asc', label: 'Fecha del documento: más antigua primero' },
+  { value: 'upload_desc', label: 'Fecha de subida: más reciente primero' },
+  { value: 'upload_asc', label: 'Fecha de subida: más antigua primero' },
+];
 
 const ALLOWED_FORMATS = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'];
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
@@ -43,17 +54,20 @@ export function DocumentsScreen() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [documentStatus, setDocumentStatus] = useState<DocumentSearchStatus | 'all'>('all');
+  const [sort, setSort] = useState<DocumentSort>('custom');
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [newDocType, setNewDocType] = useState<string>('');
+  const [editDate, setEditDate] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerDocument, setViewerDocument] = useState<any>(null);
 
   const deleteDocument = useDeleteDocument();
   const uploadDocument = useUploadDocument();
-  const updateDocument = useUpdateDocument();
+  const updateDocumentDetails = useUpdateDocumentDetails();
+  const moveDocument = useMoveDocument();
   const processDocument = useProcessDocument();
   const [processingDocId, setProcessingDocId] = useState<string | null>(null);
 
@@ -63,11 +77,16 @@ export function DocumentsScreen() {
     query: debouncedSearch.trim() || undefined,
     documentType: documentType === 'all' ? undefined : documentType,
     status: documentStatus === 'all' ? undefined : documentStatus,
+    sort,
     from: searchActive && fromDate ? fromDate : undefined,
     to: searchActive && toDate ? toDate : undefined,
     page,
     pageSize: PAGE_SIZE,
-  }), [debouncedSearch, documentType, documentStatus, fromDate, toDate, searchActive, page]);
+  }), [debouncedSearch, documentType, documentStatus, sort, fromDate, toDate, searchActive, page]);
+
+  // Las flechas solo mueven posiciones globales consecutivas con orden personalizado y sin búsqueda ni filtros.
+  const hasFilters = debouncedSearch.trim().length > 0 || documentType !== 'all' || documentStatus !== 'all' || (searchActive && (!!fromDate || !!toDate));
+  const canReorder = sort === 'custom' && !hasFilters;
 
   const { data: searchResult, isLoading } = useDocumentsSearch(searchParams);
   const documents = searchResult?.items ?? [];
@@ -78,7 +97,7 @@ export function DocumentsScreen() {
   // Cualquier cambio de búsqueda o filtro vuelve a la primera página
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, documentType, documentStatus, fromDate, toDate, searchActive]);
+  }, [debouncedSearch, documentType, documentStatus, sort, fromDate, toDate, searchActive]);
 
   // Si la lista se reduce y la página actual ya no existe, volver a la última válida
   useEffect(() => {
@@ -221,26 +240,54 @@ export function DocumentsScreen() {
     }
   };
 
+  // Abre el mismo formulario de edición con los valores actuales del documento
+  const openEditDocument = (doc: DocRow) => {
+    setNewName(doc.original_name);
+    setNewDocType(doc.document_type);
+    setEditDate(effectiveDocumentDate(doc));
+    setRenaming(doc.id);
+  };
+
+  const closeEditDocument = () => {
+    setRenaming(null);
+    setNewName('');
+    setNewDocType('');
+    setEditDate('');
+  };
+
   const handleEditDocument = async (docId: string) => {
     if (!newName.trim()) {
       toast.error('Ingrese un nombre válido');
       return;
     }
+    if (!editDate) {
+      toast.error('La fecha del documento es obligatoria');
+      return;
+    }
+    const current = documents.find((d) => d.id === docId);
+    const type = (newDocType || current?.document_type || 'other') as 'invoice' | 'delivery_note' | 'other';
 
     try {
-      await updateDocument.mutateAsync({
+      await updateDocumentDetails.mutateAsync({
         docId,
-        updates: {
-          original_name: newName,
-          ...(newDocType && { document_type: newDocType })
-        }
+        details: { name: newName.trim(), type, date: editDate },
       });
       toast.success('Documento actualizado');
-      setRenaming(null);
-      setNewName('');
-      setNewDocType('');
+      closeEditDocument();
     } catch (error) {
-      toast.error(`Error al actualizar documento: ${(error as { message?: string })?.message ?? 'Desconocido'}`);
+      toast.error(`No se guardaron los cambios: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    }
+  };
+
+  // Mover un documento una posición. Solo con orden personalizado y sin búsqueda ni filtros.
+  const handleMoveDocument = async (doc: DocRow, direction: 'up' | 'down') => {
+    if (doc.manual_position == null) return;
+    try {
+      const res = await moveDocument.mutateAsync({ docId: doc.id, direction, expectedPosition: doc.manual_position });
+      if (res?.stale) toast.info('La lista ha cambiado. Se ha actualizado el orden.');
+      else if (!res?.moved) toast.info(direction === 'up' ? 'Ya está en la primera posición' : 'Ya está en la última posición');
+    } catch (error) {
+      toast.error(`No se pudo mover el documento: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     }
   };
 
@@ -266,6 +313,7 @@ export function DocumentsScreen() {
     setSearchActive(false);
     setSearch('');
     setDocumentStatus('all');
+    setSort('custom');
     setPage(1);
   };
 
@@ -461,6 +509,33 @@ export function DocumentsScreen() {
         </div>
       </div>
 
+      {/* Orden de la lista */}
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Label htmlFor="documents-sort" className="whitespace-nowrap text-sm">Ordenar por</Label>
+          <Select value={sort} onValueChange={(v) => setSort(v as DocumentSort)}>
+            <SelectTrigger id="documents-sort" className="w-full sm:w-[320px]" aria-label="Ordenar documentos">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {sort === 'custom' && !canReorder && (
+          <p className="text-xs text-muted-foreground">
+            Para mover documentos, quita la búsqueda y los filtros.
+          </p>
+        )}
+        {sort !== 'custom' && (
+          <p className="text-xs text-muted-foreground">
+            Con este orden no se pueden mover documentos. Vuelve a «Orden personalizado».
+          </p>
+        )}
+      </div>
+
       {/* Documents Table */}
       <div className="rounded-lg border bg-card overflow-x-auto">
         {isLoading ? (
@@ -473,9 +548,10 @@ export function DocumentsScreen() {
           <table className="w-full text-sm">
             <thead className="border-b bg-muted/50 text-xs uppercase">
               <tr>
+                <th className="px-2 py-3 font-semibold text-center">Orden</th>
                 <th className="px-4 py-3 font-semibold text-left">Tipo</th>
                 <th className="px-4 py-3 font-semibold text-left">Documento</th>
-                <th className="px-4 py-3 font-semibold text-left">Fecha</th>
+                <th className="px-4 py-3 font-semibold text-left">Fecha documento</th>
                 <th className="px-4 py-3 font-semibold text-left">Referencia</th>
                 <th className="px-4 py-3 font-semibold text-left">Tamaño</th>
                 <th className="px-4 py-3 font-semibold text-left">Acciones</th>
@@ -484,6 +560,32 @@ export function DocumentsScreen() {
             <tbody>
               {documents.map((doc) => (
                 <tr key={doc.id} className="border-b hover:bg-muted/30">
+                  <td className="px-2 py-3">
+                    <div className="flex flex-col items-center gap-1">
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8"
+                        onClick={() => handleMoveDocument(doc, 'up')}
+                        disabled={!canReorder || moveDocument.isPending || doc.manual_position == null}
+                        aria-label={`Subir «${doc.original_name}» una posición`}
+                        title={canReorder ? 'Subir una posición' : 'Quita la búsqueda y los filtros para mover'}
+                      >
+                        <ArrowUp className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8"
+                        onClick={() => handleMoveDocument(doc, 'down')}
+                        disabled={!canReorder || moveDocument.isPending || doc.manual_position == null}
+                        aria-label={`Bajar «${doc.original_name}» una posición`}
+                        title={canReorder ? 'Bajar una posición' : 'Quita la búsqueda y los filtros para mover'}
+                      >
+                        <ArrowDown className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${
                       doc.document_type === 'invoice'
@@ -495,7 +597,10 @@ export function DocumentsScreen() {
                   </td>
                   <td className="px-4 py-3 font-medium">{doc.original_name}</td>
                   <td className="px-4 py-3">
-                    {format(new Date(doc.created_at), 'dd/MM/yyyy HH:mm')}
+                    <div>{format(new Date(`${effectiveDocumentDate(doc)}T00:00:00`), 'dd/MM/yyyy')}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Subido {format(new Date(doc.created_at), 'dd/MM/yyyy HH:mm')}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     {doc.sale_id && <span className="text-gray-600">Venta</span>}
@@ -585,17 +690,13 @@ export function DocumentsScreen() {
                       )}
 
                       <Dialog open={renaming === doc.id} onOpenChange={(open) => {
-                        if (!open) setRenaming(null);
+                        if (!open) closeEditDocument();
                       }}>
                         <DialogTrigger asChild>
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => {
-                              setRenaming(doc.id);
-                              setNewName(doc.original_name);
-                              setNewDocType(doc.document_type || '');
-                            }}
+                            onClick={() => openEditDocument(doc)}
                             title="Editar"
                           >
                             <Edit2 className="h-4 w-4" />
@@ -627,19 +728,35 @@ export function DocumentsScreen() {
                                 </SelectContent>
                               </Select>
                             </div>
+                            <div>
+                              <Label htmlFor={`doc-date-${doc.id}`}>Fecha del documento</Label>
+                              <Input
+                                id={`doc-date-${doc.id}`}
+                                type="date"
+                                value={editDate}
+                                onChange={(e) => setEditDate(e.target.value)}
+                                required
+                              />
+                            </div>
+                            {(doc.purchase_id || doc.sale_id) && (
+                              <p className="text-xs text-muted-foreground">
+                                La compra o venta vinculada conserva su propia fecha contable.
+                              </p>
+                            )}
                           </div>
                           <DialogFooter>
                             <Button
                               variant="outline"
-                              onClick={() => setRenaming(null)}
+                              onClick={() => closeEditDocument()}
+                              disabled={updateDocumentDetails.isPending}
                             >
                               Cancelar
                             </Button>
                             <Button
                               onClick={() => handleEditDocument(doc.id)}
-                              disabled={updateDocument.isPending}
+                              disabled={updateDocumentDetails.isPending}
                             >
-                              {updateDocument.isPending ? 'Guardando...' : 'Guardar'}
+                              {updateDocumentDetails.isPending ? 'Guardando...' : 'Guardar cambios'}
                             </Button>
                           </DialogFooter>
                         </DialogContent>

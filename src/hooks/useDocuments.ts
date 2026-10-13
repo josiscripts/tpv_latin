@@ -116,6 +116,30 @@ export function useRenameDocument() {
   });
 }
 
+export function useUpdateDocumentDetails() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ docId, details }: { docId: string; details: { name: string; type: 'invoice' | 'delivery_note' | 'other'; date: string } }) =>
+      documentsService.updateDocumentDetails(docId, details),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: DOCUMENTS_KEY });
+    },
+  });
+}
+
+export function useMoveDocument() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ docId, direction, expectedPosition }: { docId: string; direction: 'up' | 'down'; expectedPosition: number }) =>
+      documentsService.moveDocument(docId, direction, expectedPosition),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: DOCUMENTS_KEY });
+    },
+  });
+}
+
 export function useUpdateDocument() {
   const queryClient = useQueryClient();
 

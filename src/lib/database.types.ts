@@ -256,6 +256,10 @@ export type Database = {
       }
       documents: {
         Row: {
+          document_date_edited_at: string | null
+          document_date_edited_by: string | null
+          document_date_manual: string | null
+          manual_position: number | null
           created_at: string
           deleted_at: string | null
           document_date: string | null
@@ -272,6 +276,10 @@ export type Database = {
           uploaded_by: string | null
         }
         Insert: {
+          document_date_edited_at?: string | null
+          document_date_edited_by?: string | null
+          document_date_manual?: string | null
+          manual_position?: number | null
           created_at?: string
           deleted_at?: string | null
           document_date?: string | null
@@ -288,6 +296,10 @@ export type Database = {
           uploaded_by?: string | null
         }
         Update: {
+          document_date_edited_at?: string | null
+          document_date_edited_by?: string | null
+          document_date_manual?: string | null
+          manual_position?: number | null
           created_at?: string
           deleted_at?: string | null
           document_date?: string | null

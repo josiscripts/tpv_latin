@@ -104,8 +104,8 @@ BEGIN
   PERFORM pg_temp.check('P2 empleado sí ve los suyos', (r->>'total')::int = 1);
   RESET ROLE;
 
-  PERFORM pg_temp.check('P3 anon sin EXECUTE', NOT has_function_privilege('anon', 'public.search_documents(text,text,timestamptz,timestamptz,integer,integer,text)', 'EXECUTE'));
-  PERFORM pg_temp.check('P4 authenticated con EXECUTE', has_function_privilege('authenticated', 'public.search_documents(text,text,timestamptz,timestamptz,integer,integer,text)', 'EXECUTE'));
+  PERFORM pg_temp.check('P3 anon sin EXECUTE', NOT has_function_privilege('anon', 'public.search_documents(text,text,timestamptz,timestamptz,integer,integer,text,text)', 'EXECUTE'));
+  PERFORM pg_temp.check('P4 authenticated con EXECUTE', has_function_privilege('authenticated', 'public.search_documents(text,text,timestamptz,timestamptz,integer,integer,text,text)', 'EXECUTE'));
 END $t$;
 
 ROLLBACK;

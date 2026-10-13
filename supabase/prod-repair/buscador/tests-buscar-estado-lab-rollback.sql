@@ -26,29 +26,29 @@ BEGIN
   PERFORM set_config('request.jwt.claims', json_build_object('sub', ADM, 'role', 'authenticated')::text, true);
   SET LOCAL ROLE authenticated;
 
-  r := search_documents('PRUEBA-EST', NULL, NULL, NULL, 50, 0, 'uploaded');
+  r := search_documents('PRUEBA-EST-', NULL, NULL, NULL, 50, 0, 'uploaded');
   PERFORM pg_temp.check('E1 Subido: solo uploaded', (r->>'total')::int = 1 AND r->'items'->0->>'processing_status' = 'uploaded');
 
-  r := search_documents('PRUEBA-EST', NULL, NULL, NULL, 50, 0, 'processing');
+  r := search_documents('PRUEBA-EST-', NULL, NULL, NULL, 50, 0, 'processing');
   PERFORM pg_temp.check('E2 Procesando: solo processing', (r->>'total')::int = 1 AND r->'items'->0->>'processing_status' = 'processing');
 
-  r := search_documents('PRUEBA-EST', NULL, NULL, NULL, 50, 0, 'processed');
+  r := search_documents('PRUEBA-EST-', NULL, NULL, NULL, 50, 0, 'processed');
   PERFORM pg_temp.check('E3 Procesado: processed, approved y rejected', (r->>'total')::int = 3, r->>'total');
 
-  r := search_documents('PRUEBA-EST', NULL, NULL, NULL, 50, 0, 'error');
+  r := search_documents('PRUEBA-EST-', NULL, NULL, NULL, 50, 0, 'error');
   PERFORM pg_temp.check('E4 Error: solo error', (r->>'total')::int = 1 AND r->'items'->0->>'processing_status' = 'error');
 
-  r := search_documents('PRUEBA-EST', NULL, NULL, NULL, 50, 0, NULL);
+  r := search_documents('PRUEBA-EST-', NULL, NULL, NULL, 50, 0, NULL);
   PERFORM pg_temp.check('E5 Todos (sin estado): los seis', (r->>'total')::int = 6, r->>'total');
 
-  r := search_documents('PRUEBA-EST', 'invoice', NULL, NULL, 50, 0, 'error');
+  r := search_documents('PRUEBA-EST-', 'invoice', NULL, NULL, 50, 0, 'error');
   PERFORM pg_temp.check('E6 estado combinado con tipo', (r->>'total')::int = 1);
 
   r := search_documents('a-subido', NULL, NULL, NULL, 50, 0, 'error');
   PERFORM pg_temp.check('E7 estado combinado con búsqueda (sin coincidencia)', (r->>'total')::int = 0);
 
   BEGIN
-    PERFORM search_documents('PRUEBA-EST', NULL, NULL, NULL, 50, 0, 'inventado');
+    PERFORM search_documents('PRUEBA-EST-', NULL, NULL, NULL, 50, 0, 'inventado');
     PERFORM pg_temp.check('E8 estado no válido rechazado', false);
   EXCEPTION WHEN invalid_parameter_value THEN
     PERFORM pg_temp.check('E8 estado no válido rechazado', true);
