@@ -5,6 +5,7 @@ import { usePos } from "./pos-context";
 import { useAuthContext } from "./auth-provider";
 import { NotificationsPanel } from "./notifications-panel";
 import { GlobalSearch } from "./global-search";
+import { BridgeStatusIndicator } from "./bridge-status-indicator";
 import { useNotifications } from "@/hooks/useNotifications";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,7 @@ export function AppShell({children}:{children:ReactNode}){
    <header className="flex h-[72px] shrink-0 items-center justify-between gap-5 border-b bg-background px-7">
     <GlobalSearch />
     <div className="flex items-center gap-2">
+     <BridgeStatusIndicator />
      <Select value={language} onValueChange={(v)=>setLanguage(v as "es"|"en"|"ca")}><SelectTrigger className="h-9 w-[118px]"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="es">ES · Español</SelectItem><SelectItem value="en">EN · English</SelectItem><SelectItem value="ca">CA · Català</SelectItem></SelectContent></Select>
      <Button variant="ghost" size="icon" onClick={()=>setDark(!dark)} aria-label="Cambiar tema">{dark?<Sun size={18}/>:<Moon size={18}/>}</Button>
      <Popover open={notificationsOpen} onOpenChange={setNotificationsOpen}>

@@ -1,232 +1,86 @@
+// Recepción de ventas de Sysme (Bridge). Autenticación real: el Bridge envía la clave service_role
+// en Authorization: Bearer. Cualquier otra credencial (vacía, malformada, anon, usuario, clave falsa) se rechaza.
+// La aplicación de la venta se delega en la función SQL sysme_apply_sale (transacción, idempotente).
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const MAX_BODY_BYTES = 512 * 1024;
 
-interface SalesPayload {
-  sysme_id_venta: string;
-  sysme_serie: string;
-  sysme_id_tiquet: string;
-  sale_date: string;
-  subtotal: number;
-  tax: number;
-  total: number;
-  payment_method: string;
-  lineas: Array<{
-    sysme_id_venta: string;
-    sysme_id_linea: string;
-    product_id: string;
-    quantity: number;
-    unit_sale_price: number;
-    unit_cost_at_time: number | null;
-    tax_rate: number;
-    discount: number;
-    total_sale: number;
-  }>;
+// Comparación en tiempo constante: no revela en qué posición difiere la credencial.
+function constantTimeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const x = enc.encode(a);
+  const y = enc.encode(b);
+  let diff = x.length ^ y.length;
+  const n = Math.max(x.length, y.length);
+  for (let i = 0; i < n; i++) {
+    diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
+  }
+  return diff === 0;
+}
+
+function bearerToken(req: Request): string | null {
+  const header = req.headers.get("authorization") ?? "";
+  const m = /^Bearer ([^\s]{20,4096})$/.exec(header);
+  return m ? m[1] : null;
+}
+
+function json(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 serve(async (req) => {
   if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
+    return json(405, { error: "Método no permitido" });
   }
 
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+    console.error("sysme-bridge-sync: configuración del entorno incompleta");
+    return json(500, { error: "Configuración del servidor incompleta" });
+  }
+
+  const token = bearerToken(req);
+  if (!token || !constantTimeEqual(token, SERVICE_ROLE_KEY)) {
+    // Mismo mensaje para cualquier credencial incorrecta
+    return json(401, { error: "No autorizado" });
+  }
+
+  const declared = Number(req.headers.get("content-length") ?? "0");
+  if (declared > MAX_BODY_BYTES) {
+    return json(413, { error: "Petición demasiado grande" });
+  }
+
+  let payload: Record<string, unknown>;
   try {
-    // Verificar autenticación
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return new Response("Unauthorized", { status: 401 });
-    }
-
-    const token = authHeader.substring(7);
-    // TODO: Validar token contra SERVICE_ROLE_KEY
-
-    const payload: SalesPayload = await req.json();
-
-    // Inicializar cliente
-    const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-
-    // Ejecutar transacción
-    const result = await processSaleTransaction(supabase, payload);
-
-    if (!result.success) {
-      return new Response(JSON.stringify(result), { status: 400 });
-    }
-
-    return new Response(JSON.stringify(result), { status: 200 });
-  } catch (error) {
-    console.error("Error:", error);
-    return new Response(JSON.stringify({ error: (error as Error).message }), { status: 500 });
+    const raw = await req.text();
+    if (raw.length > MAX_BODY_BYTES) return json(413, { error: "Petición demasiado grande" });
+    payload = JSON.parse(raw);
+  } catch {
+    return json(400, { error: "JSON no válido" });
   }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return json(400, { error: "Formato de venta no válido" });
+  }
+
+  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const { data, error } = await supabase.rpc("sysme_apply_sale", { p_payload: payload });
+
+  if (error) {
+    // 22023 = dato de la venta no válido (lo corrige el origen). Cualquier otro error es interno.
+    if (error.code === "22023") {
+      return json(400, { success: false, error: error.message });
+    }
+    console.error("sysme-bridge-sync: fallo al aplicar la venta", error.code, error.message);
+    return json(500, { success: false, error: "No se pudo aplicar la venta" });
+  }
+
+  return json(200, data);
 });
-
-async function processSaleTransaction(supabase: any, payload: SalesPayload) {
-  try {
-    // 1. UPSERT venta (idempotente)
-    const { data: saleData, error: saleError } = await supabase
-      .from("sales")
-      .upsert(
-        {
-          source: "sysme",
-          status: "completed",
-          sysme_id_venta: payload.sysme_id_venta,
-          sysme_serie: payload.sysme_serie,
-          sysme_id_tiquet: payload.sysme_id_tiquet,
-          sale_date: payload.sale_date,
-          subtotal: payload.subtotal,
-          tax: payload.tax,
-          total: payload.total,
-          payment_method: payload.payment_method,
-        },
-        { onConflict: "sysme_id_venta" }
-      )
-      .select("id")
-      .single();
-
-    if (saleError) throw saleError;
-    const saleId = saleData.id;
-
-    // 2. Procesar líneas y actualizar stock
-    // ESTRATEGIA: Borrar líneas existentes y re-insertar (garantiza idempotencia)
-    // Esto es seguro porque:
-    // - La venta ya existe (UPSERT anterior)
-    // - Si es reintento, borra líneas viejas
-    // - Luego inserta nuevas (garantiza consistencia)
-
-    console.log(`[DEBUG] Procesando ${payload.lineas.length} líneas`);
-
-    const { error: deleteError } = await supabase
-      .from("sale_lines")
-      .delete()
-      .eq("sale_id", saleId);
-
-    if (deleteError) throw deleteError;
-
-    // Ahora insertar todas las líneas
-    for (const linea of payload.lineas) {
-      console.log(`[DEBUG] Línea ${linea.sysme_id_linea}: product_id=${linea.product_id}, quantity=${linea.quantity}`);
-      const { error: lineError } = await supabase
-        .from("sale_lines")
-        .insert({
-          sale_id: saleId,
-          product_id: linea.product_id,
-          sysme_id_venta: linea.sysme_id_venta,
-          sysme_id_linea: linea.sysme_id_linea,
-          quantity: linea.quantity,
-          unit_sale_price: linea.unit_sale_price,
-          unit_cost_at_time: linea.unit_cost_at_time,
-          tax_rate: linea.tax_rate,
-          discount: linea.discount,
-          total_sale: linea.total_sale,
-        });
-
-      if (lineError) throw lineError;
-
-      // Verificar si el movimiento de stock ya existe (idempotencia)
-      const { data: existingMovement } = await supabase
-        .from("stock_movements")
-        .select("id")
-        .eq("reference_id", saleId)
-        .eq("product_id", linea.product_id)
-        .eq("movement_type", "sale")
-        .single();
-
-      // Si el movimiento ya existe, saltamos actualización de stock (es reintento)
-      if (!existingMovement) {
-        // Obtener stock actual
-        const { data: productData, error: prodError } = await supabase
-          .from("products")
-          .select("stock")
-          .eq("id", linea.product_id)
-          .single();
-
-        if (prodError) throw prodError;
-
-        const currentStock = productData.stock || 0;
-        const newStock = currentStock - linea.quantity;
-
-        // Actualizar stock
-        const { error: updateError } = await supabase
-          .from("products")
-          .update({ stock: newStock })
-          .eq("id", linea.product_id);
-
-        if (updateError) throw updateError;
-
-        // Registrar movimiento
-        const { error: movError } = await supabase
-          .from("stock_movements")
-          .insert({
-            product_id: linea.product_id,
-            movement_type: "sale",
-            quantity: -linea.quantity,
-            previous_stock: currentStock,
-            resulting_stock: newStock,
-            reference_type: "sale",
-            reference_id: saleId,
-            source: "sysme_bridge",
-            reason: `Venta Sysme ${payload.sysme_id_venta}`,
-          });
-
-        if (movError) throw movError;
-      }
-    }
-
-    // 3. Crear notificaciones para usuarios con sales_enabled=true
-    try {
-      const { data: usersWithNotifications, error: prefsError } = await supabase
-        .from("notification_preferences")
-        .select("user_id")
-        .eq("sales_enabled", true);
-
-      if (!prefsError && usersWithNotifications && usersWithNotifications.length > 0) {
-        const notificationsToCreate = usersWithNotifications.map((pref: any) => ({
-          user_id: pref.user_id,
-          sale_id: saleId,
-          type: "sale",
-          title: `Nueva venta: ${payload.sysme_id_venta}`,
-          content: `Venta de ${payload.total.toFixed(2)}€ sincronizada desde Sysme`,
-          read: false,
-        }));
-
-        const { error: notifError } = await supabase
-          .from("notifications")
-          .insert(notificationsToCreate);
-
-        if (notifError) {
-          console.warn(`[NOTIFICATION] Error creating notifications: ${notifError.message}`);
-          // No fallar la venta si falla la notificación
-        } else {
-          console.log(`[NOTIFICATION] Created ${usersWithNotifications.length} notifications for sale ${saleId}`);
-        }
-      }
-    } catch (notificationException) {
-      console.warn(`[NOTIFICATION] Exception creating notifications: ${(notificationException as Error).message}`);
-      // No fallar la venta si falla la notificación
-    }
-
-    // 4. Actualizar cursor
-    const { error: cursorError } = await supabase
-      .from("sync_state")
-      .update({
-        last_finalized_sale_id: payload.sysme_id_venta,
-        last_sync_at: new Date().toISOString(),
-        status: "idle",
-      })
-      .eq("integration_name", "sysme_bridge");
-
-    if (cursorError) throw cursorError;
-
-    return {
-      success: true,
-      saleId,
-      message: `Sale ${payload.sysme_id_venta} processed successfully`,
-    };
-  } catch (error) {
-    console.error("Transaction error:", error);
-    return {
-      success: false,
-      error: (error as Error).message,
-    };
-  }
-}
